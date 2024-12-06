@@ -77,7 +77,8 @@ class MovieRenderer(object):
         if is_short_form:
             aspect_ratio = '9:16'
         # Write local file
-        composite_video.write_videofile(local_save_as, fps=30, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', aspect_ratio])
+        save_path = os.environ["SHARED_MEDIA_VOLUME_PATH"] + local_save_as
+        composite_video.write_videofile(save_path, fps=30, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', aspect_ratio])
         composite_video.close()
         return True
     

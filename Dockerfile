@@ -1,11 +1,5 @@
 FROM --platform=linux/amd64 python:3.9-slim-bullseye 
 
-ARG AwsSecretKey
-ARG AwsSecretId
-ARG AwsRegion
-ENV AWS_ACCESS_KEY_ID=$AwsSecretId
-ENV AWS_SECRET_ACCESS_KEY=$AwsSecretKey
-ENV AWS_REGION=$AwsRegion
 ENV SHARED_MEDIA_VOLUME_PATH="./tmp_media/"
 
 # Creates an app directory to hold your app’s source code
