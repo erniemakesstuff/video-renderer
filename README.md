@@ -20,7 +20,7 @@ Set VisualStudioCode interpreter to your .venv path.
 
 # ECR Upload
 `aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 971422718801.dkr.ecr.us-west-2.amazonaws.com`
-`docker build -t bezalel-truevine-simple-image-generator .`
-`docker tag bezalel-truevine-simple-image-generator:latest 971422718801.dkr.ecr.us-west-2.amazonaws.com/bezalel-truevine-simple-image-generator:latest`
-`docker push 971422718801.dkr.ecr.us-west-2.amazonaws.com/bezalel-truevine-simple-image-generator:latest`
+`docker build -t bezalel-truevine-video-renderer .`
+`docker tag bezalel-truevine-video-renderer:latest 971422718801.dkr.ecr.us-west-2.amazonaws.com/bezalel-truevine-video-renderer:latest`
+`docker push 971422718801.dkr.ecr.us-west-2.amazonaws.com/bezalel-truevine-video-renderer:latest`
 
