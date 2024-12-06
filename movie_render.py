@@ -34,13 +34,14 @@ class MovieRenderer(object):
                        language,
                        watermark_text,
                        local_save_as) -> bool:
-        video_clips = self.__collect_render_clips_by_media_type(final_render_sequences, 'Video', is_short_form, language)
-        image_clips = self.__collect_render_clips_by_media_type(final_render_sequences, 'Image', is_short_form,language) # lang=> if we need to overlay text info
-        vocal_clips = self.__collect_render_clips_by_media_type(final_render_sequences, 'Vocal', is_short_form,language)
-        music_clips = self.__collect_render_clips_by_media_type(final_render_sequences, 'Music', is_short_form,language) # lang=> songs dubbing
-        sfx_clips = self.__collect_render_clips_by_media_type(final_render_sequences, 'Sfx', is_short_form, language)
+        render_sequences = json.loads(final_render_sequences, object_hook=lambda d: SimpleNamespace(**d))
+        video_clips = self.__collect_render_clips_by_media_type(render_sequences, 'Video', is_short_form, language)
+        image_clips = self.__collect_render_clips_by_media_type(render_sequences, 'Image', is_short_form,language) # lang=> if we need to overlay text info
+        vocal_clips = self.__collect_render_clips_by_media_type(render_sequences, 'Vocal', is_short_form,language)
+        music_clips = self.__collect_render_clips_by_media_type(render_sequences, 'Music', is_short_form,language) # lang=> songs dubbing
+        sfx_clips = self.__collect_render_clips_by_media_type(render_sequences, 'Sfx', is_short_form, language)
         # TODO: Support text clips
-        #text_clips = self.collect_render_clips_by_media_type(final_render_sequences, 'Text', language)
+        #text_clips = self.collect_render_clips_by_media_type(render_sequences, 'Text', language)
 
         visual_layer = self.__create_visual_layer(image_clips=image_clips, 
                                                   video_clips=video_clips, video_title=thumbnail_text)
@@ -77,8 +78,11 @@ class MovieRenderer(object):
         if is_short_form:
             aspect_ratio = '9:16'
         # Write local file
-        save_path = os.environ["SHARED_MEDIA_VOLUME_PATH"] + local_save_as
-        composite_video.write_videofile(save_path, fps=30, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', aspect_ratio])
+        target_save_path = os.environ["SHARED_MEDIA_VOLUME_PATH"] + local_save_as
+        # Moviepy uses the path file extension, mp4, to determine which codec to use.
+        codec_save_path = os.environ["SHARED_MEDIA_VOLUME_PATH"] + local_save_as + ".mp4"
+        composite_video.write_videofile(codec_save_path, fps=30, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', aspect_ratio])
+        os.rename(codec_save_path, target_save_path)
         composite_video.close()
         return True
     
