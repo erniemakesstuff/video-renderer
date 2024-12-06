@@ -17,8 +17,8 @@ def health_check():
 # watermarkText: string
 # localSaveAs: string
 # contentLookupKey: string
-@app.route("/image", methods=["POST"])
-def create_image():
+@app.route("/movie", methods=["POST"])
+def create_movie():
     data = request.get_json()  # Get the JSON data from the request
     def render_movie():
         inst = movie_render.MovieRenderer()

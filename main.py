@@ -20,4 +20,4 @@ app = controller.app # Flask run initializes server.
 if __name__ ==  '__main__':
     logger.info("starting")
 
-    app.run(port=5051, debug=False, host='0.0.0.0')
+    app.run(port=5052, debug=False, host='0.0.0.0')
