@@ -16,6 +16,8 @@ import whisper_timestamped as whisper
 
 logger = logging.getLogger(__name__)
 
+thumbnail_duration = 0.8
+
 class RenderClip(object):
     def __init__(self, clip, render_metadata, subtitle_segments = []):
         self.clip = clip
@@ -42,9 +44,8 @@ class MovieRenderer(object):
         sfx_clips = self.__collect_render_clips_by_media_type(render_sequences, 'Sfx', is_short_form, language)
         # TODO: Support text clips
         #text_clips = self.collect_render_clips_by_media_type(render_sequences, 'Text', language)
-
         visual_layer = self.__create_visual_layer(image_clips=image_clips, 
-                                                  video_clips=video_clips, video_title=thumbnail_text)
+                                                  video_clips=video_clips, video_title=thumbnail_text, is_short_form=is_short_form)
         audio_layer = self.__create_audio_layer(vocal_clips, music_clips, sfx_clips)
         seconds_narration = self.__get_duration_narration(audio_layer=audio_layer)
         subtitle_layer = self.__get_subtitle_clips(audio_clips=audio_layer, is_short_form=is_short_form)
@@ -69,11 +70,11 @@ class MovieRenderer(object):
         ))
         
         composite_video = composite_video.with_audio(composite_audio)
+        if not is_music_video and seconds_narration > 0:
+            composite_video = composite_video.with_end(seconds_narration)
         if is_short_form:
             max_length_short_video_sec = 60
             composite_video = composite_video.with_end(max_length_short_video_sec)
-        if not is_music_video and seconds_narration > 0:
-            composite_video = composite_video.with_end(seconds_narration)
         aspect_ratio = '16:9'
         if is_short_form:
             aspect_ratio = '9:16'
@@ -149,7 +150,7 @@ class MovieRenderer(object):
             # Keep any background music at 100
             return
         reduce_to_percent = 0.3
-        increase_by_percent = 1.50
+        increase_by_percent = 1.70
         for rc in audio_layer:
             if rc.render_metadata.PositionLayer == 'BackgroundMusic':
                 rc.clip = rc.clip.with_volume_scaled(reduce_to_percent)
@@ -164,7 +165,7 @@ class MovieRenderer(object):
         return seconds
             
         
-    def __create_visual_layer(self, image_clips, video_clips, video_title):
+    def __create_visual_layer(self, image_clips, video_clips, video_title, is_short_form):
         # TODO: Group and order by PositionLayer + RenderSequence
         # Sequence full-screen content first.
         # Then sequence partials overlaying.
@@ -173,11 +174,17 @@ class MovieRenderer(object):
         self.__combine_sequences(layer_clips=visual_clips)
         # TODO: Something about including the thumbnail into the Composite is breaking the aspect ratio
         # TODO: Experiment with resizing thumbnail image first; don't even include it in visual_clips
+        if is_short_form:
+            self.__increase_color(visual_clips)
         self.__set_thumbnail_text_rclip(video_title=video_title, visual_clips=visual_clips)
-        
         # TODO: other position layers.
         # TODO: ensure close all moviepy clips.
         return visual_clips
+    
+    def __increase_color(self, visual_clips):
+        for vc in visual_clips:
+            vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4)])
+        
     
     def __get_random_color(self):
         yellow = "#FFFF00"
@@ -212,7 +219,7 @@ class MovieRenderer(object):
         partition_index = math.floor(len(words_formatted) * .70)
         video_title_top = " ".join(words_formatted[:partition_index])
         video_title_bottom = " ".join(words_formatted[partition_index:])
-        thumbnail_dur_sec = 0.7
+        thumbnail_dur_sec = thumbnail_duration
         secondary_color = self.__get_random_color()
         thumbnail_clip = self.__get_thumbnail_render_clip(visual_clips)
         thumbnail_text_1 = TextClip(
@@ -222,6 +229,7 @@ class MovieRenderer(object):
             color="#FFFFFF",
             stroke_color="#000000",
             stroke_width=10,
+            margin=(100, 100),
         ).with_position((0.1, 0.2), relative=True).with_duration(thumbnail_dur_sec).with_start(thumbnail_clip.clip.start)
         thumbnail_text_2 = TextClip(
             font="Impact",
@@ -230,6 +238,7 @@ class MovieRenderer(object):
             stroke_width=10,
             color=secondary_color,
             stroke_color="#000000",
+            margin=(100, 100),
         ).with_position((0.1, 0.5), relative=True).with_duration(thumbnail_dur_sec).with_start(thumbnail_clip.clip.start)
         render_meta_copy = copy.copy(thumbnail_clip.render_metadata)
         render_meta_copy.MediaType = 'Text'
@@ -244,10 +253,16 @@ class MovieRenderer(object):
     def __create_audio_layer(self, vocal_clips, music_clips, sfx_clips):
         audio_layer = vocal_clips + sfx_clips
         self.__combine_sequences(audio_layer)
-
+        self.__set_start_time_narrator(audio_layer=audio_layer)
         # contiguous background_music
         self.__combine_sequences(music_clips)
         return audio_layer + music_clips
+    
+    def __set_start_time_narrator(self, audio_layer):
+        for rclip in audio_layer:
+            if rclip.render_metadata.RenderSequence == 0 and rclip.render_metadata.MediaType == 'Vocal':
+                rclip.clip = rclip.clip.with_start(thumbnail_duration)
+                break
     
     def __set_image_clips(self, image_clips, duration_sec):
         for i, ic in enumerate(image_clips):
@@ -289,7 +304,7 @@ class MovieRenderer(object):
     
     def __get_subtitle_clips(self, audio_clips, is_short_form):
         subtitles = []
-        prev_clip_dur = 0
+        prev_clip_dur = thumbnail_duration # initial offset for thumbnail image.
         for i, ac in enumerate(audio_clips):
             if len(ac.subtitle_segments) > 0:
                 text_clips = self.__get_text_clips(text=ac.subtitle_segments, 
