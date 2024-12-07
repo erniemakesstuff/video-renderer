@@ -70,11 +70,14 @@ class MovieRenderer(object):
         ))
         
         composite_video = composite_video.with_audio(composite_audio)
+        max_length_short_video_sec = 60
         if not is_music_video and seconds_narration > 0:
-            composite_video = composite_video.with_end(seconds_narration)
+            composite_video = composite_video.with_duration(seconds_narration)
         if is_short_form:
-            max_length_short_video_sec = 60
-            composite_video = composite_video.with_end(max_length_short_video_sec)
+            composite_video = composite_video.with_duration(max_length_short_video_sec)
+        if is_short_form and seconds_narration > 0:
+            duration = min(max_length_short_video_sec, seconds_narration)
+            composite_video = composite_video.with_duration(duration)
         aspect_ratio = '16:9'
         if is_short_form:
             aspect_ratio = '9:16'
@@ -251,9 +254,10 @@ class MovieRenderer(object):
                 return rc
         
     def __create_audio_layer(self, vocal_clips, music_clips, sfx_clips):
+       
+        self.__set_start_time_narrator(audio_layer=vocal_clips)
         audio_layer = vocal_clips + sfx_clips
         self.__combine_sequences(audio_layer)
-        self.__set_start_time_narrator(audio_layer=audio_layer)
         # contiguous background_music
         self.__combine_sequences(music_clips)
         return audio_layer + music_clips
