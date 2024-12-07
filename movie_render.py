@@ -109,6 +109,9 @@ class MovieRenderer(object):
             if s.MediaType != target_media_type:
                 continue
             filename = os.environ["SHARED_MEDIA_VOLUME_PATH"] + s.ContentLookupKey
+            if not Path(filename).is_file():
+                raise Exception("missing file: " + filename)
+            
             if s.MediaType == 'Vocal':
                 subtitle_segments = self.__get_transcribed_text(filename=filename, language=transcriptionLanguage)
                 clips.append(RenderClip(clip=AudioFileClip(filename), render_metadata=s, subtitle_segments=subtitle_segments))
@@ -176,6 +179,24 @@ class MovieRenderer(object):
         # TODO: ensure close all moviepy clips.
         return visual_clips
     
+    def __get_random_color(self):
+        yellow = "#FFFF00"
+        red = "#FF0000"
+        lime_green = "#4be506"
+        white = "white"
+        selected_color = white
+        randomNum = random.randint(0, 10)
+        if randomNum >= 8:
+            selected_color = red
+        elif randomNum < 8 and randomNum >= 7:
+            selected_color = yellow
+        elif randomNum < 7 and randomNum > 4:
+            selected_color = lime_green
+        elif randomNum <= 4:
+            selected_color = white
+        return selected_color
+        
+    
     def __set_thumbnail_text_rclip(self, video_title, visual_clips):
         new_line_word_limit = 4
         words = video_title.split(" ")
@@ -191,16 +212,8 @@ class MovieRenderer(object):
         partition_index = math.floor(len(words_formatted) * .70)
         video_title_top = " ".join(words_formatted[:partition_index])
         video_title_bottom = " ".join(words_formatted[partition_index:])
-        thumbnail_dur_sec = 1
-        yellow = "#FFFF00"
-        red = "#FF0000"
-        lime_green = "#4be506"
-        secondary_color = yellow
-        randomNum = random.randint(0, 10)
-        if randomNum >= 7:
-            secondary_color = red
-        elif randomNum < 7 and randomNum > 4:
-            secondary_color = lime_green
+        thumbnail_dur_sec = 0.7
+        secondary_color = self.__get_random_color()
         thumbnail_clip = self.__get_thumbnail_render_clip(visual_clips)
         thumbnail_text_1 = TextClip(
             font="Impact",
@@ -279,7 +292,10 @@ class MovieRenderer(object):
         prev_clip_dur = 0
         for i, ac in enumerate(audio_clips):
             if len(ac.subtitle_segments) > 0:
-                text_clips = self.__get_text_clips(text=ac.subtitle_segments, is_short_form=is_short_form, offset_sec=prev_clip_dur)
+                text_clips = self.__get_text_clips(text=ac.subtitle_segments, 
+                                                   is_short_form=is_short_form,
+                                                   offset_sec=prev_clip_dur,
+                                                   color=self.__get_random_color())
                 subtitles.extend(text_clips)
             prev_clip_dur += ac.clip.duration
         return subtitles
@@ -294,7 +310,7 @@ class MovieRenderer(object):
 
         return results["segments"]
     
-    def __get_text_clips(self, text, is_short_form, offset_sec):
+    def __get_text_clips(self, text, is_short_form, offset_sec, color):
         text_clips = []
         position = "bottom"
         if is_short_form:
@@ -308,7 +324,7 @@ class MovieRenderer(object):
                         margin=(100, 100),
                         stroke_color="black", 
                         font="Arial Bold",
-                        color="white")
+                        color=color)
                 clip = clip.with_position(("center", position))
                 clip = clip.with_start(word["start"] + offset_sec)
                 clip = clip.with_end(word["end"] + offset_sec)
@@ -322,7 +338,7 @@ class MovieRenderer(object):
             text=watermark_text,
             font="Arial", # OpenType
             color="white",
-            font_size = 40,
+            font_size = 35,
         ).with_duration(water_seg_dur)
         # x,y offsets
         clips.append(clip.with_position((0.05, 0.95), relative=True).with_start(2)) # bottom left
