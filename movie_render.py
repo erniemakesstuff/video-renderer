@@ -16,7 +16,7 @@ import whisper_timestamped as whisper
 
 logger = logging.getLogger(__name__)
 
-thumbnail_duration = 0.8
+thumbnail_duration = 0.6
 
 class RenderClip(object):
     def __init__(self, clip, render_metadata, subtitle_segments = []):
@@ -131,7 +131,7 @@ class MovieRenderer(object):
                                         .with_position(("center", "center")), render_metadata=s))
             elif target_media_type == 'Image':
                 # TODO overlay text? Probably not.
-                clips.append(RenderClip(clip=ImageClip(filename).cropped(x_center=xc, y_center=yc, height=height, width=height).resized(width=width)
+                clips.append(RenderClip(clip=ImageClip(filename).cropped(x_center=xc, y_center=yc, height=height, width=width).resized(width=width)
                                         .with_position(("center", "center")), render_metadata=s))
             elif target_media_type == 'Text':
                 return clips
@@ -172,21 +172,23 @@ class MovieRenderer(object):
         # TODO: Group and order by PositionLayer + RenderSequence
         # Sequence full-screen content first.
         # Then sequence partials overlaying.
+        self.__set_thumbnail_text_rclip(video_title=video_title, visual_clips=image_clips)
         self.__set_image_clips(image_clips=image_clips, duration_sec=2)
         visual_clips = image_clips + video_clips
         self.__combine_sequences(layer_clips=visual_clips)
-        # TODO: Something about including the thumbnail into the Composite is breaking the aspect ratio
-        # TODO: Experiment with resizing thumbnail image first; don't even include it in visual_clips
         if is_short_form:
-            self.__increase_color(visual_clips)
-        self.__set_thumbnail_text_rclip(video_title=video_title, visual_clips=visual_clips)
+            self.__increase_color_and_mirror(visual_clips)
+        
         # TODO: other position layers.
         # TODO: ensure close all moviepy clips.
         return visual_clips
     
-    def __increase_color(self, visual_clips):
+    def __increase_color_and_mirror(self, visual_clips):
         for vc in visual_clips:
-            vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4)])
+            if vc.render_metadata.PositionLayer == 'Thumbnail':
+                vc.clip = vc.clip.with_effects([vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4)])
+            else:
+                vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4)])
         
     
     def __get_random_color(self):
@@ -225,6 +227,7 @@ class MovieRenderer(object):
         thumbnail_dur_sec = thumbnail_duration
         secondary_color = self.__get_random_color()
         thumbnail_clip = self.__get_thumbnail_render_clip(visual_clips)
+        thumbnail_clip.clip = thumbnail_clip.clip.with_duration(thumbnail_dur_sec)
         thumbnail_text_1 = TextClip(
             font="Impact",
             text=video_title_top,
@@ -270,6 +273,8 @@ class MovieRenderer(object):
     
     def __set_image_clips(self, image_clips, duration_sec):
         for i, ic in enumerate(image_clips):
+            if ic.render_metadata.PositionLayer == 'Thumbnail':
+                continue
             image_clips[i].clip = image_clips[i].clip.with_duration(duration_sec)
             image_clips[i].clip = image_clips[i].clip.with_position("center", "center")
 
