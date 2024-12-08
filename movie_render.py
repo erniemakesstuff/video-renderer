@@ -16,7 +16,7 @@ import whisper_timestamped as whisper
 
 logger = logging.getLogger(__name__)
 
-thumbnail_duration = 0.6
+thumbnail_duration = 0.8
 
 class RenderClip(object):
     def __init__(self, clip, render_metadata, subtitle_segments = []):
