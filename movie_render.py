@@ -231,7 +231,7 @@ class MovieRenderer(object):
         thumbnail_text_1 = TextClip(
             font="Impact",
             text=video_title_top,
-            font_size=100,
+            font_size=125,
             color="#FFFFFF",
             stroke_color="#000000",
             stroke_width=10,
@@ -240,7 +240,7 @@ class MovieRenderer(object):
         thumbnail_text_2 = TextClip(
             font="Impact",
             text=video_title_bottom,
-            font_size=125,
+            font_size=150,
             stroke_width=10,
             color=secondary_color,
             stroke_color="#000000",
@@ -343,7 +343,7 @@ class MovieRenderer(object):
             for word in segment["words"]:
                 clip = TextClip(
                         text=word["text"],
-                        font_size=150,
+                        font_size=125,
                         stroke_width=5,
                         margin=(100, 100),
                         stroke_color="black", 
