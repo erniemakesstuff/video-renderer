@@ -17,7 +17,7 @@ import whisper_timestamped as whisper
 logger = logging.getLogger(__name__)
 
 thumbnail_duration = 0.8
-
+narrator_padding = 3
 class RenderClip(object):
     def __init__(self, clip, render_metadata, subtitle_segments = []):
         self.clip = clip
@@ -51,7 +51,7 @@ class MovieRenderer(object):
         seconds_narration = self.__get_duration_narration(audio_layer=audio_layer)
         subtitle_layer = self.__get_subtitle_clips(audio_clips=audio_layer, is_short_form=is_short_form)
         duration_watermark = 900
-        if seconds_narration > 0:
+        if seconds_narration > narrator_padding:
             duration_watermark = seconds_narration
         watermark_layer = self.__get_watermark_clips(watermark_text=watermark_text, duration=duration_watermark)
         visual_clips = self.__collect_moviepy_clips(visual_layer)
@@ -72,11 +72,11 @@ class MovieRenderer(object):
         
         composite_video = composite_video.with_audio(composite_audio)
         max_length_short_video_sec = 60
-        if not is_music_video and seconds_narration > 0:
+        if not is_music_video and seconds_narration > narrator_padding:
             composite_video = composite_video.with_duration(seconds_narration)
         if is_short_form:
             composite_video = composite_video.with_duration(max_length_short_video_sec)
-        if is_short_form and seconds_narration > 0:
+        if is_short_form and seconds_narration > narrator_padding:
             duration = min(max_length_short_video_sec, seconds_narration)
             composite_video = composite_video.with_duration(duration)
         aspect_ratio = '16:9'
@@ -166,7 +166,8 @@ class MovieRenderer(object):
         for rc in audio_layer:
             if rc.render_metadata.PositionLayer == 'Narrator':
                 seconds += rc.clip.duration
-        return seconds
+        # Add some padding to avoid abrupt cutoffs; ending.
+        return seconds + narrator_padding
             
         
     def __create_visual_layer(self, image_clips, video_clips, video_title, is_short_form):
