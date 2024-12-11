@@ -16,9 +16,9 @@ RUN apt-get install curl -y curl jq
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 RUN pip install flask
-RUN pip install moviepy
+RUN pip install moviepy --timeout=1000
 # Large dependency; will fail on slow connections.
-RUN pip install whisper-timestamped
+RUN pip install whisper-timestamped --timeout=1000
 EXPOSE 8080
 EXPOSE 80
 EXPOSE 443
