@@ -15,7 +15,7 @@ import whisper_timestamped as whisper
 
 logger = logging.getLogger(__name__)
 
-thumbnail_duration = 0.85
+thumbnail_duration = 0.87
 narrator_padding = 3
 class RenderClip(object):
     def __init__(self, clip, render_metadata, subtitle_segments = []):
@@ -152,8 +152,8 @@ class MovieRenderer(object):
         if is_music_video:
             # Keep any background music at 100
             return
-        reduce_to_percent = 0.25
-        increase_by_percent = 1.75
+        reduce_to_percent = 0.3
+        increase_by_percent = 1.7
         for rc in audio_layer:
             if rc.render_metadata.PositionLayer == 'BackgroundMusic':
                 rc.clip = rc.clip.with_volume_scaled(reduce_to_percent)
@@ -191,7 +191,7 @@ class MovieRenderer(object):
             if vc.render_metadata.PositionLayer == 'Thumbnail':
                 vc.clip = vc.clip.with_effects([vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4)])
             else:
-                vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4), vfx.MultiplySpeed(factor=1.10)])
+                vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4), vfx.MultiplySpeed(factor=1.20)])
         
     
     def __get_random_color(self):
