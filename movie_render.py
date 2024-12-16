@@ -15,7 +15,7 @@ import whisper_timestamped as whisper
 
 logger = logging.getLogger(__name__)
 
-thumbnail_duration = 0.8
+thumbnail_duration = 0.85
 narrator_padding = 3
 class RenderClip(object):
     def __init__(self, clip, render_metadata, subtitle_segments = []):
@@ -152,8 +152,8 @@ class MovieRenderer(object):
         if is_music_video:
             # Keep any background music at 100
             return
-        reduce_to_percent = 0.3
-        increase_by_percent = 1.70
+        reduce_to_percent = 0.25
+        increase_by_percent = 1.75
         for rc in audio_layer:
             if rc.render_metadata.PositionLayer == 'BackgroundMusic':
                 rc.clip = rc.clip.with_volume_scaled(reduce_to_percent)
@@ -178,18 +178,20 @@ class MovieRenderer(object):
         visual_clips = image_clips + video_clips
         self.__combine_sequences(layer_clips=visual_clips)
         if is_short_form:
-            self.__increase_color_and_mirror(visual_clips)
+            self.__optimize_short_form_vfx(visual_clips)
         
         # TODO: other position layers.
         # TODO: ensure close all moviepy clips.
         return visual_clips
     
-    def __increase_color_and_mirror(self, visual_clips):
+    # Optimize short-form for highest retention settings such as brighter, higher contrast colors
+    # faster video speeds
+    def __optimize_short_form_vfx(self, visual_clips):
         for vc in visual_clips:
             if vc.render_metadata.PositionLayer == 'Thumbnail':
                 vc.clip = vc.clip.with_effects([vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4)])
             else:
-                vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4)])
+                vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4), vfx.MultiplySpeed(factor=1.10)])
         
     
     def __get_random_color(self):
