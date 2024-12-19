@@ -15,7 +15,7 @@ import whisper_timestamped as whisper
 
 logger = logging.getLogger(__name__)
 
-thumbnail_duration = 0.87
+thumbnail_duration = .85
 narrator_padding = 3
 class RenderClip(object):
     def __init__(self, clip, render_metadata, subtitle_segments = []):
@@ -85,7 +85,10 @@ class MovieRenderer(object):
         target_save_path = filepath_prefix + local_save_as
         # Moviepy uses the path file extension, mp4, to determine which codec to use.
         codec_save_path = filepath_prefix + local_save_as + ".mp4"
-        composite_video.write_videofile(codec_save_path, fps=30, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', aspect_ratio])
+        fps = 30
+        if is_short_form:
+            fps = 60
+        composite_video.write_videofile(codec_save_path, fps=fps, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', aspect_ratio])
         os.rename(codec_save_path, target_save_path)
         composite_video.close()
         return True
@@ -127,11 +130,13 @@ class MovieRenderer(object):
                 #return clips
                 clips.append(RenderClip(clip=AudioFileClip(filename), render_metadata=s))
             elif s.MediaType == 'Video':
-                clips.append(RenderClip(clip=VideoFileClip(filename).cropped(x_center=xc, y_center=yc, height=height, width=width).resized(width=width)
+                clips.append(RenderClip(clip=VideoFileClip(filename).resized(height=height)
+                                        .cropped(x_center=xc, y_center=yc, height=height, width=width).resized(width=width)
                                         .with_position(("center", "center")), render_metadata=s))
             elif target_media_type == 'Image':
                 # TODO overlay text? Probably not.
-                clips.append(RenderClip(clip=ImageClip(filename).cropped(x_center=xc, y_center=yc, height=height, width=width).resized(width=width)
+                clips.append(RenderClip(clip=ImageClip(filename).resized(height=height)
+                                        .cropped(x_center=xc, y_center=yc, height=height, width=width).resized(width=width)
                                         .with_position(("center", "center")), render_metadata=s))
             elif target_media_type == 'Text':
                 return clips
@@ -176,9 +181,10 @@ class MovieRenderer(object):
         self.__set_thumbnail_text_rclip(video_title=video_title, visual_clips=image_clips)
         self.__set_image_clips(image_clips=image_clips, duration_sec=2)
         visual_clips = image_clips + video_clips
-        self.__combine_sequences(layer_clips=visual_clips)
         if is_short_form:
             self.__optimize_short_form_vfx(visual_clips)
+
+        self.__combine_sequences(layer_clips=visual_clips)
         
         # TODO: other position layers.
         # TODO: ensure close all moviepy clips.
@@ -190,8 +196,16 @@ class MovieRenderer(object):
         for vc in visual_clips:
             if vc.render_metadata.PositionLayer == 'Thumbnail':
                 vc.clip = vc.clip.with_effects([vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4)])
-            else:
-                vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), vfx.LumContrast(0.1, 0.4), vfx.MultiplySpeed(factor=1.20)])
+                continue
+            # Ideally, we want each clip to be at most 10-15 seconds.
+            speed_multiplier = 1.20
+            if vc.clip.duration >= 50:
+                speed_multiplier = 6
+            elif vc.clip.duration >= 20:
+                speed_multiplier = 4
+
+            vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), 
+                                                vfx.LumContrast(0.1, 0.4), vfx.MultiplySpeed(factor=speed_multiplier)])
         
     
     def __get_random_color(self):
