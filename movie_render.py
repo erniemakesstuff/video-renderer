@@ -127,7 +127,6 @@ class MovieRenderer(object):
                 # TODO dubbing? For music videos.
                 clips.append(RenderClip(clip=AudioFileClip(filename), render_metadata=s))
             elif s.MediaType == 'Sfx':
-                #return clips
                 clips.append(RenderClip(clip=AudioFileClip(filename), render_metadata=s))
             elif s.MediaType == 'Video':
                 clips.append(RenderClip(clip=VideoFileClip(filename).resized(height=height)
@@ -352,7 +351,6 @@ class MovieRenderer(object):
         audio = whisper.load_audio(filename)
         model = whisper.load_model("tiny") # tiny, base, small, medium, large
         results = whisper.transcribe(model, audio, language=language)
-
         return results["segments"]
     
     def __get_text_clips(self, text, is_short_form, offset_sec, color):

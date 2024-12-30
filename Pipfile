@@ -9,6 +9,8 @@ flask = "*"
 moviepy = "*"
 ffmpeg = "*"
 whisper-timestamped = "*"
+librosa = "*"
+matplotlib = "*"
 
 [dev-packages]
 

@@ -1,5 +1,6 @@
 from flask import Flask, request
 import movie_render
+import context_generator
 import threading
 
 app = Flask(__name__)
@@ -30,5 +31,25 @@ def create_movie():
                             local_save_as=data["contentLookupKey"],
                             filepath_prefix=data["filepathPrefix"])
     t1 = threading.Thread(target=render_movie)
+    t1.start()
+    return "Ok"
+
+
+# Accept json body
+# Create transcription.
+# sourceVideoFilename: video filename on shared path.
+# sourceAudioFilename: TODO: for audio reactions
+# saveAsTranscriptionFilename: collection of text w/ timestamps.
+# saveAsPeaksFilename: collection of audio-peaks (excitement zones) w/ timestamps.
+# saveAsDirPeakFrames: frames extracted from peaks. Scene filenames defined in saveAsPeaksFilename.
+# language
+@app.route("/generate-context", methods=["POST"])
+def generate_context():
+    # TODO https://trello.com/c/HXk5OvEh
+    data = request.get_json()  # Get the JSON data from the request
+    def generate_context():
+        inst = context_generator.ContextGenerator()
+
+    t1 = threading.Thread(target=generate_context)
     t1.start()
     return "Ok"
