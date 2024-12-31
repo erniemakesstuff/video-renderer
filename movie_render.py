@@ -199,9 +199,9 @@ class MovieRenderer(object):
             # Ideally, we want each clip to be at most 10-15 seconds.
             speed_multiplier = 1.20
             if vc.clip.duration >= 50:
-                speed_multiplier = 8
-            elif vc.clip.duration >= 20:
                 speed_multiplier = 6
+            elif vc.clip.duration >= 20:
+                speed_multiplier = 4
 
             vc.clip = vc.clip.with_effects([vfx.MirrorX(), vfx.MultiplyColor(1.1), 
                                                 vfx.LumContrast(0.1, 0.4), vfx.MultiplySpeed(factor=speed_multiplier)])
