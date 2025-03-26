@@ -3,6 +3,7 @@ Renders movies using files stored at shared location SHARED_MEDIA_VOLUME_PATH.
 Exposes server API for poller to invoke.
 
 # Usage
+GOOGLE_APPLICATION_CREDENTIALS path to local credentials file.
 Start shell environment
 `pipenv shell`
 `python main.py`

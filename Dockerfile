@@ -1,6 +1,7 @@
 FROM --platform=linux/amd64 python:3.9-slim-bullseye 
 
 ENV SHARED_MEDIA_VOLUME_PATH="./tmp_media/"
+ENV GOOGLE_APPLICATION_CREDENTIALS="./localkey.json"
 
 # Creates an app directory to hold your app’s source code
 WORKDIR /app

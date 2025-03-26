@@ -11,6 +11,8 @@ ffmpeg = "*"
 whisper-timestamped = "*"
 librosa = "*"
 matplotlib = "*"
+vertexai = "*"
+numpy = "==2.0"
 
 [dev-packages]
 

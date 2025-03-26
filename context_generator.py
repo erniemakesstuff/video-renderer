@@ -1,14 +1,9 @@
-import copy
-import math
-from pathlib import Path
 import random
-from types import SimpleNamespace
 import os
 import json
 import logging
-from typing import List
+import time
 
-from botocore.exceptions import ClientError
 from moviepy import *
 import numpy as np
 import whisper_timestamped as whisper
@@ -17,6 +12,8 @@ import librosa.display
 import numpy as np
 import scipy.signal
 import matplotlib.pyplot as plt
+
+from gemini import GeminiClient
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +26,12 @@ class ContextGenerator(object):
 
     def generate(self, sourceVideoFilename, saveAsTranscriptionFilename, saveAsFramesDirectory='.', sourceAudioFilename='.', language = 'en'):
         # TODO https://trello.com/c/HXk5OvEh
-        #self.__generate_transcription_file(filename=sourceVideoFilename, saveAsFilename=saveAsTranscriptionFilename, language=language)
-        #self.__generate_peaks(filename=sourceVideoFilename)
-        self.__analyze_audio_peaks(file_path=sourceVideoFilename)
+        #transcriptSegments = self.__generate_transcription_file(filename=sourceVideoFilename, saveAsFilename=saveAsTranscriptionFilename, language=language)
+        #noteable_times = self.__analyze_transcript(transcriptSegments)
+        #for i in noteable_times:
+        #    print('notable time: ' + str(i))
+        peak_audio_times = self.__generate_peaks(filename=sourceVideoFilename)
+        #self.__analyze_audio_peaks(file_path=sourceVideoFilename)
         pass
 
 
@@ -39,116 +39,101 @@ class ContextGenerator(object):
         audio = whisper.load_audio(filename)
         model = whisper.load_model("tiny") # tiny, base, small, medium, large
         results = whisper.transcribe(model, audio, language=language)
+        minified_result = {}
+        minified_result['segments'] = []
+        minified_result['transcript'] = results['text']
+        for i, seg in enumerate(results['segments']):
+             segment = {}
+             segment['id'] = seg['id']
+             segment['text'] = seg['text']
+             segment['timestampStartSeconds'] = seg['start']
+             segment['timestampEndSeconds'] = seg['end']
+             minified_result['segments'].append(segment)
         with open(saveAsFilename, "w") as f:
             # Write data to the file
-            f.write(json.dumps(results))
+            f.write(json.dumps(minified_result))
+        return minified_result
+    
+    def __analyze_transcript(self, transcriptSegments):
+        if len(transcriptSegments['segments']) == 0:
+            return []
+        segments = transcriptSegments['segments']
+        max_slice_size = 100
+        # Generate subslices
+        analysisAgentClient = GeminiClient()
+        notable_timestamps = []
+        for start in range(0, len(segments), max_slice_size):
+            # Generate subslices for the current chunk
+            chunk_end = min(start + max_slice_size, len(segments))
+            subslice = segments[start:chunk_end]
+            respJsonStr = analysisAgentClient.call_model_json_out(self.__get_analysis_query(), json.dumps(subslice))
+            responseData = json.loads(respJsonStr)
+            notable_timestamps += responseData
+            print('sleeping...')
+            time.sleep(10)
+
+        return notable_timestamps
+
+    def __get_analysis_query(self):
+        request = """You are a musical scoring professional. You are able to identify emotional, climactic, and significant moments from media.
+        Your goal is to analyze the following transcript for significant moments that should be punctuated in music. Your output will be a json valid array of integers.
+        ###
+        """
+        return request
+
     
     def __generate_peaks(self, filename):
-            audio_file = AudioFileClip(filename)
-            temp_audio_file = str(random.randint(0, 9999)) + "tmp_audio.mp3"
-            audio_file.write_audiofile(temp_audio_file)
-            y, sr = librosa.load(temp_audio_file)
-            # Calculate STFT
-            stft = librosa.stft(y)
+        audio_file = AudioFileClip(filename)
+        temp_audio_file = str(random.randint(0, 9999)) + "tmp_audio.mp3"
+        audio_file.write_audiofile(temp_audio_file)
+        y, sr = librosa.load(temp_audio_file)
+        # Calculate STFT
+        stft = librosa.stft(y)
 
-            # Calculate the RMS energy
-            rms = librosa.amplitude_to_db(np.abs(stft), ref=np.max)
-            rms = np.mean(rms, axis=0)
+        # Calculate the RMS energy
+        rms = librosa.amplitude_to_db(np.abs(stft), ref=np.max)
+        rms = np.mean(rms, axis=0)
 
-            # Find peaks
-            peaks, _ = scipy.signal.find_peaks(rms)
-            hop_length = 512  # Typical value
-            frame_rate = sr / hop_length
-            peak_times = peaks / frame_rate
+        # Find peaks
+        peaks, _ = scipy.signal.find_peaks(rms, prominence=0.8, width=20, distance=40)
 
-            times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop_length)
+        top_n = 21
+        top_selection = min(len(peaks), top_n)
+        # Get the amplitudes of the peaks
+        peak_amplitudes = rms[peaks]
+        
+        # Sort peaks by their amplitude
+        sorted_peak_indices = np.argsort(peak_amplitudes)[::-1]
+        
+        # Select the top N peaks
+        top_peak_indices = sorted_peak_indices[:top_selection]
+        peaks = peaks[top_peak_indices]
 
-            plt.figure(figsize=(12, 6))
-            plt.plot(times, rms, label='RMS Energy')
-            plt.plot(peak_times, rms[peaks], 'ro', label='Peaks')
-            plt.xlabel('Time (s)')
-            plt.ylabel('RMS Energy (dB)')
-            plt.title('Audio Peaks Detection')
-            plt.legend()
-            plt.grid(True)
-            plt.show()
-
-            print("Peak Timestamps (seconds):", peak_times)
-
-            os.remove(temp_audio_file)
-
-    def __detect_audio_peaks(self, file_path, top_n=7):
-        """
-        Detect the top N peaks in an audio file based on amplitude levels.
-        
-        Parameters:
-        -----------
-        file_path : str
-            Path to the audio file to be analyzed
-        top_n : int, optional
-            Number of top peaks to return (default is 7)
-        
-        Returns:
-        --------
-        tuple: 
-            - numpy array of peak timestamps (in seconds)
-            - numpy array of corresponding peak amplitudes
-        """
-        # Load the audio file with explicit dtype
-        y, sr = librosa.load(file_path, dtype=np.float32)
-        
-        # Calculate the RMS (Root Mean Square) energy
-        rms_energy = librosa.feature.rms(y=y)[0]
-        
-        # Normalize the RMS energy
-        normalized_energy = (rms_energy - rms_energy.min()) / (rms_energy.max() - rms_energy.min())
-        
-        # Find peaks using a different approach
-        # Use scipy for peak detection
-        from scipy.signal import find_peaks
-        
-        # Find peaks with a minimum prominence
-        peaks, _ = find_peaks(normalized_energy, prominence=0.2, width=3)
-        
-        # If we have more peaks than requested, keep only the top ones
-        if len(peaks) > top_n:
-            # Get the amplitudes of the peaks
-            peak_amplitudes = normalized_energy[peaks]
-            
-            # Sort peaks by their amplitude
-            sorted_peak_indices = np.argsort(peak_amplitudes)[::-1]
-            
-            # Select the top N peaks
-            top_peak_indices = sorted_peak_indices[:top_n]
-            peaks = peaks[top_peak_indices]
-        
         # Convert peak indices to timestamps
         peak_times = librosa.frames_to_time(peaks, sr=sr)
-        peak_amplitudes = normalized_energy[peaks]
+        peak_amplitudes = rms[peaks]
         
         # Sort peaks by amplitude in descending order
         sorted_indices = np.argsort(peak_amplitudes)[::-1]
         peak_times = peak_times[sorted_indices]
         peak_amplitudes = peak_amplitudes[sorted_indices]
-        
-        return peak_times, peak_amplitudes
 
-    # Example usage
-    def __analyze_audio_peaks(self, file_path):
-        """
-        Analyze and print out the top 7 peaks in an audio file.
-        
-        Parameters:
-        -----------
-        file_path : str
-            Path to the audio file to be analyzed
-        """
-        try:
-            peak_times, peak_amplitudes = self.__detect_audio_peaks(file_path)
-            
-            print("Top 7 Peak Moments:")
-            for i, (time, amplitude) in enumerate(zip(peak_times, peak_amplitudes), 1):
-                print(f"{i}. Time: {time:.2f} seconds | Intensity: {amplitude:.4f}")
-        
-        except Exception as e:
-            print(f"Error analyzing audio file: {e}")
+        for i, (time, amplitude) in enumerate(zip(peak_times, peak_amplitudes), 1):
+            print(f"{i}. Time: {time:.2f} seconds | Intensity: {amplitude:.4f}")
+
+        times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=512)
+
+        plt.figure(figsize=(20, 10))
+        plt.plot(times, rms, label='RMS Energy')
+        plt.plot(peak_times, rms[peaks], 'ro', label='Peaks')
+        plt.xlabel('Time (s)')
+        plt.ylabel('RMS Energy (dB)')
+        plt.title('Audio Peaks Detection')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+        print("Peak Timestamps (seconds):", peak_times)
+
+        os.remove(temp_audio_file)
+        return peak_times
