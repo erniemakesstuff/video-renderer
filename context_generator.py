@@ -27,10 +27,11 @@ class ContextGenerator(object):
             cls.instance = super(ContextGenerator, cls).__new__(cls)
         return cls.instance
 
-    def generate(self, sourceVideoFilename, sourceAudioFilename, saveAsTranscriptionFilename, saveAsFramesDirectory, language):
+    def generate(self, sourceVideoFilename, saveAsTranscriptionFilename, saveAsFramesDirectory='.', sourceAudioFilename='.', language = 'en'):
         # TODO https://trello.com/c/HXk5OvEh
-        self.__generate_transcription_file(filename=sourceVideoFilename, language=language)
-        self.__generate_peaks(filename=sourceVideoFilename)
+        #self.__generate_transcription_file(filename=sourceVideoFilename, saveAsFilename=saveAsTranscriptionFilename, language=language)
+        #self.__generate_peaks(filename=sourceVideoFilename)
+        self.__analyze_audio_peaks(file_path=sourceVideoFilename)
         pass
 
 
@@ -42,8 +43,7 @@ class ContextGenerator(object):
             # Write data to the file
             f.write(json.dumps(results))
     
-    def __generate_peaks(self, filename, saveAsFilename):
-            audio_path = 'path/to/your/audio.wav'  # Replace with your audio file path
+    def __generate_peaks(self, filename):
             audio_file = AudioFileClip(filename)
             temp_audio_file = str(random.randint(0, 9999)) + "tmp_audio.mp3"
             audio_file.write_audiofile(temp_audio_file)
@@ -76,3 +76,79 @@ class ContextGenerator(object):
             print("Peak Timestamps (seconds):", peak_times)
 
             os.remove(temp_audio_file)
+
+    def __detect_audio_peaks(self, file_path, top_n=7):
+        """
+        Detect the top N peaks in an audio file based on amplitude levels.
+        
+        Parameters:
+        -----------
+        file_path : str
+            Path to the audio file to be analyzed
+        top_n : int, optional
+            Number of top peaks to return (default is 7)
+        
+        Returns:
+        --------
+        tuple: 
+            - numpy array of peak timestamps (in seconds)
+            - numpy array of corresponding peak amplitudes
+        """
+        # Load the audio file with explicit dtype
+        y, sr = librosa.load(file_path, dtype=np.float32)
+        
+        # Calculate the RMS (Root Mean Square) energy
+        rms_energy = librosa.feature.rms(y=y)[0]
+        
+        # Normalize the RMS energy
+        normalized_energy = (rms_energy - rms_energy.min()) / (rms_energy.max() - rms_energy.min())
+        
+        # Find peaks using a different approach
+        # Use scipy for peak detection
+        from scipy.signal import find_peaks
+        
+        # Find peaks with a minimum prominence
+        peaks, _ = find_peaks(normalized_energy, prominence=0.2, width=3)
+        
+        # If we have more peaks than requested, keep only the top ones
+        if len(peaks) > top_n:
+            # Get the amplitudes of the peaks
+            peak_amplitudes = normalized_energy[peaks]
+            
+            # Sort peaks by their amplitude
+            sorted_peak_indices = np.argsort(peak_amplitudes)[::-1]
+            
+            # Select the top N peaks
+            top_peak_indices = sorted_peak_indices[:top_n]
+            peaks = peaks[top_peak_indices]
+        
+        # Convert peak indices to timestamps
+        peak_times = librosa.frames_to_time(peaks, sr=sr)
+        peak_amplitudes = normalized_energy[peaks]
+        
+        # Sort peaks by amplitude in descending order
+        sorted_indices = np.argsort(peak_amplitudes)[::-1]
+        peak_times = peak_times[sorted_indices]
+        peak_amplitudes = peak_amplitudes[sorted_indices]
+        
+        return peak_times, peak_amplitudes
+
+    # Example usage
+    def __analyze_audio_peaks(self, file_path):
+        """
+        Analyze and print out the top 7 peaks in an audio file.
+        
+        Parameters:
+        -----------
+        file_path : str
+            Path to the audio file to be analyzed
+        """
+        try:
+            peak_times, peak_amplitudes = self.__detect_audio_peaks(file_path)
+            
+            print("Top 7 Peak Moments:")
+            for i, (time, amplitude) in enumerate(zip(peak_times, peak_amplitudes), 1):
+                print(f"{i}. Time: {time:.2f} seconds | Intensity: {amplitude:.4f}")
+        
+        except Exception as e:
+            print(f"Error analyzing audio file: {e}")
