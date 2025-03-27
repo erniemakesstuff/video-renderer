@@ -1,5 +1,11 @@
 FROM --platform=linux/amd64 python:3.9-slim-bullseye 
 
+ARG AwsSecretKey
+ARG AwsSecretId
+ARG AwsRegion
+ENV AWS_ACCESS_KEY_ID=$AwsSecretId
+ENV AWS_SECRET_ACCESS_KEY=$AwsSecretKey
+ENV AWS_REGION=$AwsRegion
 ENV SHARED_MEDIA_VOLUME_PATH="./tmp_media/"
 ENV GOOGLE_APPLICATION_CREDENTIALS="./localkey.json"
 
@@ -13,6 +19,8 @@ RUN apt update
 RUN apt install ffmpeg -y
 RUN apt-get update
 RUN apt-get install curl -y curl jq
+RUN apt-get install liblzma-dev
+
 # --no-cache-dir
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt

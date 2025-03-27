@@ -23,17 +23,50 @@ class ContextGenerator(object):
         if not hasattr(cls, 'instance'):
             cls.instance = super(ContextGenerator, cls).__new__(cls)
         return cls.instance
-
     def generate(self, sourceVideoFilename, saveAsTranscriptionFilename, saveAsFramesDirectory='.', sourceAudioFilename='.', language = 'en'):
         # TODO https://trello.com/c/HXk5OvEh
-        #transcriptSegments = self.__generate_transcription_file(filename=sourceVideoFilename, saveAsFilename=saveAsTranscriptionFilename, language=language)
-        #noteable_times = self.__analyze_transcript(transcriptSegments)
-        #for i in noteable_times:
-        #    print('notable time: ' + str(i))
-        peak_audio_times = self.__generate_peaks(filename=sourceVideoFilename)
-        #self.__analyze_audio_peaks(file_path=sourceVideoFilename)
         pass
 
+    def get_noteable_timestamps(self, sourceVideoFilename, saveAsTranscriptionFilename, saveAsFramesDirectory='.', sourceAudioFilename='.', language = 'en'):
+        transcriptSegments = self.__generate_transcription_file(filename=sourceVideoFilename, saveAsFilename=saveAsTranscriptionFilename, language=language)
+        noteable_times = self.__analyze_transcript(transcriptSegments)
+        
+        peak_audio_times = self.__generate_peaks(filename=sourceVideoFilename)
+        joined_times = self.__left_join_times(peak_audio_times, noteable_times)
+
+        asc_join_times = sorted(joined_times)
+        compacted_times = self.__compact_times(asc_join_times)
+        for i in compacted_times:
+            print('notable time: ' + str(i))
+        
+        return compacted_times
+
+    def __compact_times(self, times):
+        if len(times) == 0:
+            return times
+        compacted_times = []
+        compacted_times.append(times[0])
+        minute = 60
+        for i in times:
+            if compacted_times[len(compacted_times) - 1] + minute > i:
+                continue
+            compacted_times.append(i)
+
+        return compacted_times
+    
+    def __left_join_times(self, leftTimes, rightTimes):
+        if len(rightTimes) == 0:
+            return leftTimes
+        join = []
+        for lt in leftTimes:
+            for rt in rightTimes:
+                minute = 60
+                if lt >= rt - minute or lt <= rt + minute:
+                    join.append(lt)
+                    break
+
+        
+        return join
 
     def __generate_transcription_file(self, filename, saveAsFilename, language):
         audio = whisper.load_audio(filename)
