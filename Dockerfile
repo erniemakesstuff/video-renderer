@@ -26,6 +26,8 @@ RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 RUN pip install flask
 RUN pip install moviepy --timeout=1000
+RUN pip install torch
+RUN pip install -U audiocraft
 # Large dependency; will fail on slow connections.
 RUN pip install whisper-timestamped --timeout=1000
 EXPOSE 8080

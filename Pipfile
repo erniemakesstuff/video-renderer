@@ -13,6 +13,7 @@ librosa = "*"
 matplotlib = "*"
 vertexai = "*"
 numpy = "==2.0"
+transformers = "*"
 
 [dev-packages]
 
