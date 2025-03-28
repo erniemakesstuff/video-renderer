@@ -14,6 +14,7 @@ matplotlib = "*"
 vertexai = "*"
 numpy = "==2.0"
 transformers = "*"
+pydub = "*"
 
 [dev-packages]
 

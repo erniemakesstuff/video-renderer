@@ -23,11 +23,12 @@ class ContextGenerator(object):
         if not hasattr(cls, 'instance'):
             cls.instance = super(ContextGenerator, cls).__new__(cls)
         return cls.instance
+    
     def generate(self, sourceVideoFilename, saveAsTranscriptionFilename, saveAsFramesDirectory='.', sourceAudioFilename='.', language = 'en'):
         # TODO https://trello.com/c/HXk5OvEh
         pass
 
-    def get_noteable_timestamps(self, sourceVideoFilename, saveAsTranscriptionFilename, saveAsFramesDirectory='.', sourceAudioFilename='.', language = 'en'):
+    def get_noteable_timestamps(self, sourceVideoFilename, saveAsTranscriptionFilename='', saveAsFramesDirectory='.', sourceAudioFilename='.', language = 'en'):
         transcriptSegments = self.__generate_transcription_file(filename=sourceVideoFilename, saveAsFilename=saveAsTranscriptionFilename, language=language)
         noteable_times = self.__analyze_transcript(transcriptSegments)
         
@@ -82,9 +83,10 @@ class ContextGenerator(object):
              segment['timestampStartSeconds'] = seg['start']
              segment['timestampEndSeconds'] = seg['end']
              minified_result['segments'].append(segment)
-        with open(saveAsFilename, "w") as f:
-            # Write data to the file
-            f.write(json.dumps(minified_result))
+        if len(saveAsFilename) > 0:
+            with open(saveAsFilename, "w") as f:
+                # Write data to the file
+                f.write(json.dumps(minified_result))
         return minified_result
     
     def __analyze_transcript(self, transcriptSegments):
@@ -151,7 +153,7 @@ class ContextGenerator(object):
         peak_times = peak_times[sorted_indices]
         peak_amplitudes = peak_amplitudes[sorted_indices]
 
-        for i, (time, amplitude) in enumerate(zip(peak_times, peak_amplitudes), 1):
+        """for i, (time, amplitude) in enumerate(zip(peak_times, peak_amplitudes), 1):
             print(f"{i}. Time: {time:.2f} seconds | Intensity: {amplitude:.4f}")
 
         times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=512)
@@ -164,7 +166,7 @@ class ContextGenerator(object):
         plt.title('Audio Peaks Detection')
         plt.legend()
         plt.grid(True)
-        plt.show()
+        plt.show()"""
 
         print("Peak Timestamps (seconds):", peak_times)
 
