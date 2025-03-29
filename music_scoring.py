@@ -3,6 +3,7 @@ import os
 import random
 from music_generation import MusicGeneration
 from context_generator import ContextGenerator
+from movie_render import MovieRenderer
 from s3_wrapper import upload_file, download_file, media_exists
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ class MusicScoring(object):
     def __init__(self):
         self.music_generator = MusicGeneration()
         self.context_generator = ContextGenerator()
+        self.movie_renderer = MovieRenderer()
         pass
 
     
@@ -40,10 +42,15 @@ class MusicScoring(object):
         self.music_generator.save_audio(rise_audio_file, rise)
         self.music_generator.save_audio(climax_audio_file, climax)
         # 4. Apply music to final output media; crossfade sfx, etc.
+        self.movie_renderer.render_video_with_music_scoring(temp_source_file, baseline, rise, climax,
+                                                            noteable_timestamps_seconds, callbackMediaID)
+        
         # 5. Upload to s3 by callbackMediaID.
-
+        upload_file(callbackMediaID, callbackMediaID)
 
         os.remove(baseline_audio_file)
         os.remove(rise_audio_file)
         os.remove(climax_audio_file)
-        pass
+        os.remove(temp_source_file)
+        os.remove(callbackMediaID)
+        

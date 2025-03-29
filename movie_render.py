@@ -29,6 +29,53 @@ class MovieRenderer(object):
             cls.instance = super(MovieRenderer, cls).__new__(cls)
         return cls.instance
 
+    def render_video_with_music_scoring(self, source_video_file, baseline_audio_file,
+                                        rise_audio_file, climax_audio_file, important_moments_seconds, output_filename):
+        """output_filename must end w/ .mp4"""
+        video_clip = VideoFileClip(source_video_file)
+        background_music_layer = self.__create_background_music_scoring(baseline_audio_file, rise_audio_file, climax_audio_file,
+                                                                        important_moments_seconds, video_clip.duration)
+        background_music_layer.append(video_clip.audio)
+        composite_audio = CompositeAudioClip(np.array(
+            background_music_layer
+        ))
+        composite_video = video_clip.with_audio(composite_audio)
+        composite_video.write_videofile(output_filename, fps=60, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', '16:9'])
+        composite_video.close()
+        pass
+
+    def __create_background_music_scoring(self, baseline_audio_file, rise_audio_file, climax_audio_file, important_moments_seconds, end_time):
+        reduce_to_percent = 0.3
+        base_music = AudioFileClip(baseline_audio_file).with_volume_scaled(reduce_to_percent) # 200sec
+        rise_music = AudioFileClip(rise_audio_file).with_volume_scaled(reduce_to_percent) # 60 sec
+        climax_music = AudioFileClip(climax_audio_file).with_volume_scaled(reduce_to_percent) # 30 sec
+        ordered_clips = []
+        start_time = 0
+        
+        for i, cur_timestamp in enumerate(important_moments_seconds):
+            if start_time > cur_timestamp:
+                continue
+            time_to_fill = cur_timestamp - start_time
+            num_base_copies = time_to_fill // base_music.duration
+            for c in range(num_base_copies):
+                ordered_clips.append(base_music.with_start(start_time))
+                start_time += base_music.duration
+            
+            if start_time < cur_timestamp:
+                ordered_clips.append(rise_music.with_start(start_time))
+                start_time += rise_music.duration
+            
+            if i % 5 == 0:
+                ordered_clips.append(climax_music.with_start(start_time))
+                start_time += climax_music.duration
+
+        remaining_time = end_time - start_time
+        num_padding = remaining_time // base_music.duration
+        for p in range(num_padding):
+            ordered_clips.append(base_music.with_start(start_time))
+            start_time += base_music.duration
+        
+        return ordered_clips
     
     def perform_render(self, is_short_form, thumbnail_text,
                        final_render_sequences,
