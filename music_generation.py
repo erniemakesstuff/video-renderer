@@ -147,7 +147,7 @@ class MusicGeneration(object):
         
     def save_audio(self, audio_data, filename):
         """
-        Save generated audio to a WAV file
+        Save generated audio to a MP3 file
         
         :param audio_data: Numpy array of audio data
         :param filename: Output filename
