@@ -16,8 +16,8 @@ class MusicGeneration(object):
         if not hasattr(cls, 'instance'):
             cls.instance = super(MusicGeneration, cls).__new__(cls)
         return cls.instance
-    # 20min, 3 generations 200sec, 60, 30 -- small model
-    def __init__(self, model_name="facebook/musicgen-stereo-medium"):
+    
+    def __init__(self, model_name="facebook/musicgen-small"):
         """
         Initialize MusicGen generator with optimized performance
         
@@ -61,7 +61,7 @@ class MusicGeneration(object):
         
         :param prompts: Text prompt describing the desired music
         :param duration_sec: Total desired music duration in seconds
-        :return: Generated audio as numpy array
+        :return: Generated audio as numpy array (mono)
         """
         # Prepare initial inputs and move to GPU
         inputs = self.processor(
@@ -84,12 +84,8 @@ class MusicGeneration(object):
                 temperature=0.7
             )
         
-        # Convert to numpy and move to CPU
+        # Convert to numpy and move to CPU - keep as mono
         initial_audio = initial_audio_values[0, 0].cpu().numpy()
-        
-        # Ensure stereo 
-        if initial_audio.ndim == 1:
-            initial_audio = np.column_stack([initial_audio, initial_audio])
         
         # Initialize output audio array with the initial segment
         full_audio = list(initial_audio)
@@ -122,8 +118,8 @@ class MusicGeneration(object):
                     for k, v in inputs.items()
                 }
                 
-                # Prepare audio context input
-                batch_audio_contexts = [context_window.T] * batch_size
+                # Prepare audio context input - mono audio, no need for .T
+                batch_audio_contexts = [context_window] * batch_size
                 
                 # Process all audio contexts in a single call
                 batch_context_inputs = self.processor(
@@ -155,10 +151,6 @@ class MusicGeneration(object):
                     # Convert to numpy
                     next_audio = batch_audio_values[i, 0].cpu().numpy()
                     
-                    # Ensure stereo
-                    if next_audio.ndim == 1:
-                        next_audio = np.column_stack([next_audio, next_audio])
-                    
                     # Calculate overlap
                     overlap_samples = int(len(next_audio) * context_overlap_ratio)
                     
@@ -183,7 +175,7 @@ class MusicGeneration(object):
             else:
                 # Single segment generation (same as before)
                 context_input = self.processor(
-                    audio=[context_window.T],
+                    audio=[context_window],  # No .T for mono audio
                     sampling_rate=self.sampling_rate,
                     return_tensors="pt"
                 )
@@ -208,10 +200,6 @@ class MusicGeneration(object):
                 
                 # Convert to numpy
                 next_audio = next_audio_values[0, 0].cpu().numpy()
-                
-                # Ensure stereo
-                if next_audio.ndim == 1:
-                    next_audio = np.column_stack([next_audio, next_audio])
                 
                 # Calculate overlap
                 overlap_samples = int(len(next_audio) * context_overlap_ratio)
@@ -239,13 +227,13 @@ class MusicGeneration(object):
         """
         Create a smooth crossfade between two audio segments with optimized calculation
         
-        :param segment1: First audio segment
-        :param segment2: Second audio segment
+        :param segment1: First audio segment (mono)
+        :param segment2: Second audio segment (mono)
         :param overlap_samples: Number of samples to crossfade
         :return: Processed audio segment
         """
-        # Create linear crossfade weights (pre-calculated for efficiency)
-        fade_in = np.linspace(0, 1, overlap_samples)[:, np.newaxis]
+        # Create linear crossfade weights for mono audio
+        fade_in = np.linspace(0, 1, overlap_samples)
         fade_out = 1 - fade_in
         
         # Apply crossfade (vectorized operations)
@@ -258,25 +246,20 @@ class MusicGeneration(object):
         """
         Save generated audio to MP3 file efficiently
         
-        :param audio_data: Numpy array of audio data
+        :param audio_data: Numpy array of audio data (mono)
         :param filename: Output filename
         """
         # Direct conversion to MP3 without temporary file
         try:
-            # For stereo audio
-            if audio_data.ndim > 1:
-                channels = 2
-                # Ensure correct format - int16 is most compatible with pydub
-                audio_data = (audio_data * 32767).astype(np.int16)
-            else:
-                channels = 1
-                audio_data = (audio_data * 32767).astype(np.int16)
+            # For mono audio
+            # Ensure correct format - int16 is most compatible with pydub
+            audio_data = (audio_data * 32767).astype(np.int16)
                 
             audio = AudioSegment(
                 audio_data.tobytes(),
                 frame_rate=self.sampling_rate,
                 sample_width=2,  # 16-bit
-                channels=channels
+                channels=1  # Explicitly set to mono
             )
             audio.export(filename, format="mp3")
             

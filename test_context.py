@@ -10,9 +10,9 @@ start_time = datetime.datetime.now()
 
 gen_inst = MusicGeneration()
 music_prompt = """A grand orchestral arrangement with thunderous percussion, epic brass fanfares, and soaring strings, creating a cinematic atmosphere fit for a heroic battle."""
-gen_inst.save_audio(gen_inst.generate_music(music_prompt, 200), "terran-medium-base.mp3")
-gen_inst.save_audio(gen_inst.generate_music(music_prompt, 60), "terran-medium-rise.mp3")
-gen_inst.save_audio(gen_inst.generate_music(music_prompt, 30), "terran-medium-climax.mp3")
+gen_inst.save_audio(gen_inst.generate_music(music_prompt, 200), "terran-base-mono.mp3")
+gen_inst.save_audio(gen_inst.generate_music(music_prompt, 60), "terran-rise-mono.mp3")
+gen_inst.save_audio(gen_inst.generate_music(music_prompt, 30), "terran-climax-mono.mp3")
 
 #sample_prompt = """A dynamic blend of hip-hop and orchestral elements, with sweeping strings and brass, evoking the vibrant energy of the city."""
 #gen_inst.save_audio(gen_inst.generate_music(sample_prompt, 30), "beatbox.mp3")
