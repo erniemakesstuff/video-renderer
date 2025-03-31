@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 from music_generation import MusicGeneration
 from movie_render import MovieRenderer
@@ -37,8 +38,9 @@ print('generated context')
 #TBD
 # Input: Small, stereo, 200 seconds. Time for generation: 5min
 context_inst = ContextGenerator()
-source_file = './tasteless-rush.mp4'
-noteable_timestamps_seconds = context_inst.get_noteable_timestamps(source_file)
+source_file = './tasteless-rush.mp4'#'./tasteless-rush.mp4'
+noteable_timestamps_seconds, metadata = context_inst.get_noteable_timestamps(source_file)
+print('received metadata: ' + json.dumps(metadata))
 score_inst =  MovieRenderer()
 score_inst.render_video_with_music_scoring(source_file, 'terran-base-battle-stereo.mp3', 'terran-rise-battle-stereo.mp3', 'terran-climax-battle-stereo.mp3', noteable_timestamps_seconds, 'test-render.mp4')
 

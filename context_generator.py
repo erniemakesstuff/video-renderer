@@ -30,17 +30,17 @@ class ContextGenerator(object):
 
     def get_noteable_timestamps(self, sourceVideoFilename, saveAsTranscriptionFilename='', saveAsFramesDirectory='.', sourceAudioFilename='.', language = 'en'):
         transcriptSegments = self.__generate_transcription_file(filename=sourceVideoFilename, saveAsFilename=saveAsTranscriptionFilename, language=language)
-        noteable_times = self.__analyze_transcript(transcriptSegments)
+        noteable_times, metadata = self.__analyze_transcript(transcriptSegments)
         
         peak_audio_times = self.__generate_peaks(filename=sourceVideoFilename)
-        joined_times = self.__left_join_times(peak_audio_times, noteable_times)
+        joined_times, joined_metadata = self.__left_join_times(peak_audio_times, noteable_times, metadata)
 
         asc_join_times = sorted(joined_times)
         compacted_times = self.__compact_times(asc_join_times)
         for i in compacted_times:
             print('notable time: ' + str(i))
         
-        return compacted_times
+        return compacted_times, joined_metadata
 
     def __compact_times(self, times):
         if len(times) == 0:
@@ -55,19 +55,27 @@ class ContextGenerator(object):
 
         return compacted_times
     
-    def __left_join_times(self, leftTimes, rightTimes):
+    def __left_join_times(self, leftTimes, rightTimes, metadata):
         if len(rightTimes) == 0:
             return leftTimes
         join = []
+        joined_metadata = []
+        metadata_added = {}
         for lt in leftTimes:
             for rt in rightTimes:
                 minute = 60
                 if lt >= rt - minute or lt <= rt + minute:
                     join.append(lt)
                     break
+            for rtm in metadata:
+                minute = 60
+                isWithinValidTimeframe = lt >= rtm['StartSeconds'] - minute or lt <= rtm['StartSeconds'] + minute
+                if isWithinValidTimeframe and rtm['StartSeconds'] not in metadata_added:
+                    joined_metadata.append(rtm)
+                    metadata_added[rtm['StartSeconds']] = True
 
         
-        return join
+        return join, joined_metadata
 
     def __generate_transcription_file(self, filename, saveAsFilename, language):
         audio = whisper.load_audio(filename)
@@ -97,21 +105,34 @@ class ContextGenerator(object):
         # Generate subslices
         analysisAgentClient = GeminiClient()
         notable_timestamps = []
+        timestamp_metadata = []
         for start in range(0, len(segments), max_slice_size):
             # Generate subslices for the current chunk
             chunk_end = min(start + max_slice_size, len(segments))
             subslice = segments[start:chunk_end]
             respJsonStr = analysisAgentClient.call_model_json_out(self.__get_analysis_query(), json.dumps(subslice))
             responseData = json.loads(respJsonStr)
-            notable_timestamps += responseData
+            print('gemini response: ' + json.dumps(responseData))
+            notable_timestamps += responseData['AllTimestampSeconds']
+            timestamp_metadata += responseData['TimestampMetadata']
             print('sleeping...')
             time.sleep(10)
 
-        return notable_timestamps
+        return notable_timestamps, timestamp_metadata
 
     def __get_analysis_query(self):
         request = """You are a musical scoring professional. You are able to identify emotional, climactic, and significant moments from media.
         Your goal is to analyze the following transcript for significant moments that should be punctuated in music. Your output will be a json valid array of integers.
+        Expected json output:
+        {
+            "AllTimestampSeconds": int[],
+            "TimestampMetadata": [
+                {
+                    "StartSeconds": int,
+                    "Reason": "A reason for the inclusion of this timestamp as a noteable moment. Should include relevant details to justify its inclusion, and provide context."
+                },
+            ] 
+        }
         ###
         """
         return request
