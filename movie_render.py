@@ -12,6 +12,8 @@ from botocore.exceptions import ClientError
 from moviepy import *
 import numpy as np
 import whisper_timestamped as whisper
+from moviepy.audio.fx import AudioFadeIn, AudioFadeOut
+from moviepy.audio.AudioClip import concatenate_audioclips
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ class MovieRenderer(object):
         composite_audio = CompositeAudioClip(np.array(
             background_music_layer
         ))
-        composite_video = video_clip.with_audio(composite_audio)
+        composite_video = video_clip.with_audio(composite_audio).with_duration(video_clip.duration)
         composite_video.write_videofile(output_filename, fps=60, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', '16:9'])
         composite_video.close()
         pass
@@ -49,7 +51,6 @@ class MovieRenderer(object):
         base_music = AudioFileClip(baseline_audio_file).with_volume_scaled(reduce_to_percent) # 200sec
         rise_music = AudioFileClip(rise_audio_file).with_volume_scaled(reduce_to_percent) # 60 sec
         climax_music = AudioFileClip(climax_audio_file).with_volume_scaled(reduce_to_percent) # 30 sec
-        climax_music.crossfadein
         ordered_clips = []
         start_time = 0
         
@@ -57,7 +58,7 @@ class MovieRenderer(object):
             if start_time > cur_timestamp:
                 continue
             time_to_fill = cur_timestamp - start_time
-            num_base_copies = time_to_fill // base_music.duration
+            num_base_copies = int(time_to_fill // base_music.duration)
             for c in range(num_base_copies):
                 ordered_clips.append(base_music.with_start(start_time))
                 start_time += base_music.duration
@@ -71,67 +72,50 @@ class MovieRenderer(object):
                 start_time += climax_music.duration
 
         remaining_time = end_time - start_time
-        num_padding = remaining_time // base_music.duration
+        num_padding = int(remaining_time // base_music.duration)
         for p in range(num_padding):
             ordered_clips.append(base_music.with_start(start_time))
             start_time += base_music.duration
-        
+
         return self.__crossfade_audio_clips(ordered_clips)
     
 
-    def __crossfade_audio_clips(self, audio_clips, crossfade_duration=5.0):
+
+    def __crossfade_audio_clips(self, audio_clips, crossfade_duration=3.0):
         """
-        Crossfades a list of AudioFileClip objects and returns a list of AudioFileClip objects.
+        Crossfades a list of AudioFileClip objects using MoviePy's audio effects.
 
         Parameters:
-        audio_clips (list): List of AudioFileClip objects
-        crossfade_duration (float): Duration of crossfade in seconds
+        audio_clips (list): List of AudioFileClip objects.
+        crossfade_duration (float): Duration of crossfade in seconds.
 
         Returns:
-        list: List of AudioFileClip objects with crossfades applied.
+        list: A list containing a single AudioClip with crossfades applied.
         """
-        if len(audio_clips) < 2:
-            return audio_clips  # No crossfade needed if only one or zero clips
+        if not audio_clips:
+            return []
 
-        final_clips = []
-        final_clips.append(audio_clips[0])
+        if len(audio_clips) == 1:
+            return audio_clips
 
-        for i in range(1, len(audio_clips)):
-            clip1 = final_clips[-1]
-            clip2 = audio_clips[i]
-
-            # Calculate crossfade samples
-            crossfade_samples = int(crossfade_duration * clip1.fps)
-            overlap_samples = min(crossfade_samples, clip1.duration * clip1.fps, clip2.duration * clip2.fps)
-
-            # Get audio data
-            audio1 = clip1.to_soundarray()
-            audio2 = clip2.to_soundarray()
-
-            # Create fade curves
-            fade_in = np.linspace(0, 1, overlap_samples)
-            fade_out = np.linspace(1, 0, overlap_samples)
-
-            # Apply crossfade
-            overlap1 = audio1[-overlap_samples:] * fade_out[:, np.newaxis]
-            overlap2 = audio2[:overlap_samples] * fade_in[:, np.newaxis]
-            crossfaded = overlap1 + overlap2
-
-            # Combine audio clips
-            if len(audio1.shape) == 1: # mono
-                combined_audio = np.concatenate([audio1[:-overlap_samples], crossfaded, audio2[overlap_samples:]])
-            else: # stereo
-                combined_audio = np.concatenate([audio1[:-overlap_samples], crossfaded, audio2[overlap_samples:]])
-
-            # Create new AudioClip
-            combined_clip = AudioClip(lambda t: combined_audio[int(t * clip1.fps)], fps=clip1.fps)
-            final_clips[-1] = combined_clip
+        faded_clips = []
+        for i in range(len(audio_clips)):
+            clip = audio_clips[i]
+            if i > 0:
+                # Apply fade-out to the end of the previous clip
+                faded_clips[-1] = faded_clips[-1].with_effects([AudioFadeOut(duration=crossfade_duration)])
 
             if i < len(audio_clips) - 1:
-                final_clips.append(audio_clips[i])
+                # Apply fade-in to the beginning of the current clip
+                clip = clip.with_effects([AudioFadeIn(duration=crossfade_duration)])
 
-        return final_clips
-    
+            faded_clips.append(clip)
+
+        # Concatenate the faded clips
+        final_clip = concatenate_audioclips(faded_clips)
+
+        return [final_clip]
+
     def perform_render(self, is_short_form, thumbnail_text,
                        final_render_sequences,
                        language,
