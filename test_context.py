@@ -9,17 +9,32 @@ start_time = datetime.datetime.now()
 #inst.get_noteable_timestamps(sourceVideoFilename="/Users/owner/Downloads/testeless-sample-cast.mp4", saveAsTranscriptionFilename="tasteless-transcript.json", language='en')
 
 gen_inst = MusicGeneration()
-music_prompt = """A grand orchestral arrangement with thunderous percussion, epic brass fanfares, and soaring strings, creating a cinematic atmosphere fit for a heroic battle."""
-gen_inst.save_audio(gen_inst.generate_music(music_prompt, 200), "terran-base-mono.mp3")
-gen_inst.save_audio(gen_inst.generate_music(music_prompt, 60), "terran-rise-mono.mp3")
-gen_inst.save_audio(gen_inst.generate_music(music_prompt, 30), "terran-climax-mono.mp3")
+#music_prompt = """An epic orchestral masterpiece featuring a powerful symphony of strings, thunderous percussion, heroic brass, and soaring choirs. 
+#The music builds with intense crescendos, dynamic contrasts, and a sweeping, cinematic melody, evoking the grandeur of a legendary battle or an awe-inspiring journey. 
+#Inspired by Hans Zimmer, Two Steps From Hell, and John Williams."""
+#gen_inst.save_audio(gen_inst.generate_music(music_prompt + ' Rhythmic, steady score for an approaching battle.', 200), "terran-base-stereo.mp3")
+#gen_inst.save_audio(gen_inst.generate_music(music_prompt + ' Rising tesnion, building suspense to a comming climax. Something momentus is just about to happen!', 60), "terran-rise-stereo.mp3")
+#gen_inst.save_audio(gen_inst.generate_music(music_prompt + ' Climactic, finale music signaling a grand crescendo. Exciting and high energy.', 30), "terran-climax-stereo.mp3")
+
+music_prompt = """A high-energy orchestral battle theme with thunderous percussion, driving rhythms, and powerful brass. 
+The music features intense war drums, fast-paced staccato strings, and soaring melodies, creating an atmosphere of urgency and heroism. 
+Dynamic crescendos and rhythmic buildups enhance the action, making it perfect for an epic in-game fight sequence. Inspired by Two Steps From Hell and Hans Zimmer."""
+gen_inst.save_audio(gen_inst.generate_music(music_prompt + ' Rhythmic, steady score for an approaching battle.', 200), "terran-base-battle-stereo.mp3")
+#gen_inst.save_audio(gen_inst.generate_music(music_prompt + ' Rising tesnion, building suspense to a comming climax. Something momentus is just about to happen!', 60), "terran-rise-battle-stereo.mp3")
+#gen_inst.save_audio(gen_inst.generate_music(music_prompt + ' Climactic, finale music signaling a grand crescendo. Exciting and high energy.', 30), "terran-climax-battle-stereo.mp3")
 
 #sample_prompt = """A dynamic blend of hip-hop and orchestral elements, with sweeping strings and brass, evoking the vibrant energy of the city."""
 #gen_inst.save_audio(gen_inst.generate_music(sample_prompt, 30), "beatbox.mp3")
 end_time = datetime.datetime.now()
 print('start: ' + str(start_time) + ' | end: ' + str(end_time))
 print('generated context')
-# TODO: Medium can't load; too biggggg
-# 20min: 3 generations 200sec, 60, 30 -- small model, stereo; stereo implementation
+
+# W/ GPU optimizations
+
+# Input: Small, mono, 200 seconds. Time for generation:  5min.
+#TBD
+# Input: Small, stereo, 200 seconds. Time for generation: 5min
+
+
 
 

@@ -31,9 +31,9 @@ class MusicScoring(object):
         # 2. collect noteable times.
         noteable_timestamps_seconds = self.context_generator.get_noteable_timestamps(temp_source_file)
         # 3. Generate music.
-        baseline = self.music_generator.generate_music([prompt, 'Slow, rhythmic, background music.'], 200)
-        rise = self.music_generator.generate_music([prompt, 'Increasing tension and energy, background music.'], 60)
-        climax = self.music_generator.generate_music([prompt, 'Climax, soaring and energetic, climactic, background music.'], 60)
+        baseline = self.music_generator.generate_music([prompt, 'Rhythmic, steady score for an approaching battle.'], 200)
+        rise = self.music_generator.generate_music([prompt, 'Rising tesnion, building suspense to a comming climax. Something momentus is just about to happen!'], 60)
+        climax = self.music_generator.generate_music([prompt, 'Climactic, finale music signaling a grand crescendo. Exciting and high energy.'], 60)
         temp_gen_audio_prefix = str(random.Int(0, 1000)) + "temp_gen_audio_"
         baseline_audio_file = temp_gen_audio_prefix + "baseline.mp3"
         rise_audio_file = temp_gen_audio_prefix + "rise.mp3"

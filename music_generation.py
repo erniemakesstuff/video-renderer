@@ -17,260 +17,260 @@ class MusicGeneration(object):
             cls.instance = super(MusicGeneration, cls).__new__(cls)
         return cls.instance
     
-    def __init__(self, model_name="facebook/musicgen-small"):
-        """
-        Initialize MusicGen generator with optimized performance
-        
-        :param model_name: Pretrained MusicGen model name
-        """
-        # Disable gradient calculations during inference
+    def __init__(self, model_name="facebook/musicgen-stereo-small"):
         torch.set_grad_enabled(False)
-        
-        # Determine device
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else None
+        if self.device is None:
+            raise Exception("GPU is required for generation, but none is available.")
         logger.info(f"Using device: {self.device}")
-        
-        # Load model and processor
-        self.processor = AutoProcessor.from_pretrained(model_name)
-        self.model = MusicgenForConditionalGeneration.from_pretrained(model_name)
-        
-        # Move model to GPU and optimize
-        self.model = self.model.to(self.device)
-        
-        # Use half-precision for faster inference if on GPU
-        if self.device == "cuda":
-            self.model = self.model.half()  # Convert to FP16
-            logger.info("Using half precision (FP16) for faster inference")
-            
-        # torch.compile is only used for non-Windows platforms
-        if hasattr(torch, 'compile') and platform.system() != "Windows":
-            try:
-                self.model = torch.compile(self.model)
-                logger.info("Using torch.compile for model optimization")
-            except Exception as e:
-                logger.warning(f"Could not use torch.compile: {e}")
-        
-        # Configuration
-        self.sampling_rate = self.model.config.audio_encoder.sampling_rate
-        self.max_generation_duration = 30  # Maximum generation duration in seconds
-        self.sliding_window_duration = 10  # Reduced duration for faster processing
-        
-    def generate_music(self, prompts, duration_sec):
-        """
-        Generate music with optimized performance
-        
-        :param prompts: Text prompt describing the desired music
-        :param duration_sec: Total desired music duration in seconds
-        :return: Generated audio as numpy array (mono)
-        """
-        # Prepare initial inputs and move to GPU
-        inputs = self.processor(
-            text=prompts,
-            padding=True,
-            return_tensors="pt",
-        )
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        
-        # Optimize parameters for faster generation
-        tokens_per_generation = 1200  # Slightly reduced for faster processing
-        context_overlap_ratio = 0.3  # Reduced overlap for faster processing
-        context_window_duration = self.sliding_window_duration
-        
-        # Generate initial segment
-        with torch.no_grad():  # Explicitly disable gradients for inference
-            initial_audio_values = self.model.generate(
-                **inputs, 
-                max_new_tokens=tokens_per_generation,
-                temperature=0.7
-            )
-        
-        # Convert to numpy and move to CPU - keep as mono
-        initial_audio = initial_audio_values[0, 0].cpu().numpy()
-        
-        # Initialize output audio array with the initial segment
-        full_audio = list(initial_audio)
-        
-        # Context management
-        context_window = initial_audio
-        
-        # Determine how many segments we need to generate
-        target_samples = int(self.sampling_rate * duration_sec)
-        current_samples = len(full_audio)
-        
-        # Maximum batch size based on GPU memory
-        # Adjust this value based on your GPU memory capacity
-        max_batch_size = 3 if self.device == "cuda" else 1
-        
-        while current_samples < target_samples:
-            # Calculate remaining segments needed
-            remaining_samples = target_samples - current_samples
-            segment_length = len(initial_audio) // 2  # Approximate length after crossfade
-            remaining_segments = (remaining_samples // segment_length) + 1
-            
-            # Determine batch size for this iteration
-            batch_size = min(max_batch_size, remaining_segments)
-            
-            # True parallel batch processing with multiple contexts
-            if batch_size > 1:
-                # Prepare batch inputs - same text prompt for all
-                batch_text_inputs = {
-                    k: v.repeat(batch_size, 1) if v.dim() > 1 else v.repeat(batch_size) 
-                    for k, v in inputs.items()
-                }
-                
-                # Prepare audio context input - mono audio, no need for .T
-                batch_audio_contexts = [context_window] * batch_size
-                
-                # Process all audio contexts in a single call
-                batch_context_inputs = self.processor(
-                    audio=batch_audio_contexts,
-                    sampling_rate=self.sampling_rate,
-                    return_tensors="pt"
-                )
-                batch_context_inputs = {
-                    k: v.to(self.device) for k, v in batch_context_inputs.items() 
-                    if k in ['input_features']
-                }
-                
-                # Merge text and audio context inputs
-                merged_inputs = {
-                    **batch_text_inputs,
-                    **batch_context_inputs
-                }
-                
-                # Generate all segments in parallel with a single model call
-                with torch.no_grad():
-                    batch_audio_values = self.model.generate(
-                        **merged_inputs,
-                        max_new_tokens=tokens_per_generation,
-                        temperature=0.7
-                    )
-                
-                # Process each generated segment
-                for i in range(batch_size):
-                    # Convert to numpy
-                    next_audio = batch_audio_values[i, 0].cpu().numpy()
-                    
-                    # Calculate overlap
-                    overlap_samples = int(len(next_audio) * context_overlap_ratio)
-                    
-                    # Apply crossfade
-                    crossfaded_audio = self._efficient_crossfade(
-                        context_window[-overlap_samples:], 
-                        next_audio, 
-                        overlap_samples
-                    )
-                    
-                    # Append new segment
-                    full_audio.extend(crossfaded_audio)
-                    current_samples = len(full_audio)
-                    
-                    # Update context window for next iteration
-                    context_window = next_audio[-int(self.sampling_rate * context_window_duration):]
-                    
-                    # Break if we've reached the target duration
-                    if current_samples >= target_samples:
-                        break
-            
-            else:
-                # Single segment generation (same as before)
-                context_input = self.processor(
-                    audio=[context_window],  # No .T for mono audio
-                    sampling_rate=self.sampling_rate,
-                    return_tensors="pt"
-                )
-                context_input = {
-                    k: v.to(self.device) for k, v in context_input.items() 
-                    if k in ['input_features']
-                }
-                
-                # Merge inputs
-                merged_inputs = {
-                    **inputs,
-                    **context_input
-                }
-                
-                # Generate
-                with torch.no_grad():
-                    next_audio_values = self.model.generate(
-                        **merged_inputs,
-                        max_new_tokens=tokens_per_generation,
-                        temperature=0.7
-                    )
-                
-                # Convert to numpy
-                next_audio = next_audio_values[0, 0].cpu().numpy()
-                
-                # Calculate overlap
-                overlap_samples = int(len(next_audio) * context_overlap_ratio)
-                
-                # Apply crossfade
-                crossfaded_audio = self._efficient_crossfade(
-                    context_window[-overlap_samples:], 
-                    next_audio, 
-                    overlap_samples
-                )
-                
-                # Append new segment
-                full_audio.extend(crossfaded_audio)
-                current_samples = len(full_audio)
-                
-                # Update context window
-                context_window = next_audio[-int(self.sampling_rate * context_window_duration):]
-        
-        # Trim to desired duration
-        full_audio = np.array(full_audio[:target_samples])
-        
-        return full_audio
 
-    def _efficient_crossfade(self, segment1, segment2, overlap_samples):
-        """
-        Create a smooth crossfade between two audio segments with optimized calculation
+        self.processor = AutoProcessor.from_pretrained(model_name)
+        self.model = MusicgenForConditionalGeneration.from_pretrained(model_name).to(self.device).half()
+        logger.info("Using half precision (FP16) for faster inference")
+
+        self.sampling_rate = self.model.config.audio_encoder.sampling_rate
+        self.max_generation_duration = 30
+        self.sliding_window_duration = 10
+        # Get number of audio channels from model config
+        self.num_channels = 2  # Stereo audio has 2 channels
+
+        self.default_params = {
+            "temperature": 1.0,
+            "top_k": 250,
+            "top_p": 0.95,
+            "guidance_scale": 3.0,
+        }
         
-        :param segment1: First audio segment (mono)
-        :param segment2: Second audio segment (mono)
-        :param overlap_samples: Number of samples to crossfade
-        :return: Processed audio segment
-        """
-        # Create linear crossfade weights for mono audio
-        fade_in = np.linspace(0, 1, overlap_samples)
-        fade_out = 1 - fade_in
+    def enhance_prompt(self, prompt):
+        if len(prompt.split()) < 5:
+            descriptors = [
+                "with dynamic range", "with clear melody",
+                "with balanced frequencies", "with natural progression",
+                "with proper mixing", "with varied instrumentation",
+                "with wide stereo field", "with precise stereo imaging"
+            ]
+            num_descriptors = min(3, max(1, len(prompt.split()) // 2))
+            selected_descriptors = random.sample(descriptors, num_descriptors)
+            return f"{prompt}, {', '.join(selected_descriptors)}"
+        return prompt
         
-        # Apply crossfade (vectorized operations)
-        crossfaded = segment1[-overlap_samples:] * fade_out + segment2[:overlap_samples] * fade_in
+    def generate_music(self, prompts, duration_sec, **kwargs):
+        if isinstance(prompts, str):
+            prompts = self.enhance_prompt(prompts)
+        elif isinstance(prompts, list):
+            prompts = [self.enhance_prompt(p) for p in prompts]
+
+        inputs = self.processor(text=prompts, padding=True, return_tensors="pt").to(self.device)
+        gen_params = {**self.default_params, **kwargs}
+        tokens_per_generation = 1500
+        context_window_duration = self.sliding_window_duration
+
+        with torch.no_grad():
+            initial_audio_values = self.model.generate(**inputs, max_new_tokens=tokens_per_generation, **gen_params)
+            # For stereo, the shape should be [batch, channels, samples]
+            initial_audio = initial_audio_values[0]  # Remove batch dimension, results in [channels, samples]
+
+            if self._detect_high_pitch_issue(initial_audio):
+                logger.info("Detected high pitch issue, regenerating with adjusted parameters")
+                gen_params["temperature"] *= 1.2
+                gen_params["top_k"] -= 50
+                gen_params["top_p"] -= 0.05
+                gen_params["guidance_scale"] += 1.0
+                initial_audio_values = self.model.generate(**inputs, max_new_tokens=tokens_per_generation, **gen_params)
+                initial_audio = initial_audio_values[0]
+
+        full_audio = [initial_audio]
+        context_window = initial_audio
+        target_samples = int(self.sampling_rate * duration_sec)
         
-        # Return only non-overlapping part of segment1 + crossfaded + rest of segment2
-        return np.concatenate([segment1[:-overlap_samples], crossfaded, segment2[overlap_samples:]])
+        # For stereo audio, we need to be careful about how we handle the concatenation
+        current_samples = full_audio[0].shape[1]  # Get number of samples in the first chunk
+        min_overlap_samples = int(self.sampling_rate * 2)
+
+        while current_samples < target_samples:
+            # We need to convert to CPU temporarily for the processor
+            # This is required by the huggingface processor implementation
+            # which expects numpy inputs
+            cpu_audio = context_window.cpu().numpy()
+            
+            # Process audio and get it back to GPU
+            context_input = self.processor(
+                audio=[cpu_audio], 
+                sampling_rate=self.sampling_rate, 
+                return_tensors="pt"
+            ).to(self.device)
+            
+            # Merge with text inputs
+            merged_inputs = {
+                **inputs,
+                **{k: v for k, v in context_input.items() if k in ['input_features']}
+            }
+            
+            with torch.no_grad():
+                next_audio_values = self.model.generate(
+                    **merged_inputs, 
+                    max_new_tokens=tokens_per_generation, 
+                    **gen_params
+                )
+                next_audio = next_audio_values[0]  # Remove batch dimension
+
+                if self._detect_high_pitch_issue(next_audio):
+                    logger.info("Detected high pitch issue in segment, regenerating")
+                    gen_params["temperature"] *= 1.3
+                    gen_params["top_k"] -= 75
+                    gen_params["top_p"] -= 0.1
+                    gen_params["guidance_scale"] += 1.5
+                    next_audio_values = self.model.generate(**merged_inputs, max_new_tokens=tokens_per_generation, **gen_params)
+                    next_audio = next_audio_values[0]
+
+            overlap_samples = max(min_overlap_samples, int(next_audio.shape[1] * 0.5))
+            optimal_overlap_samples = self._find_optimal_splice_point(context_window[:, -overlap_samples*2:], next_audio[:, :overlap_samples*2], overlap_samples)
+
+            crossfaded_audio = self._improved_crossfade(context_window[:, -optimal_overlap_samples:], next_audio, optimal_overlap_samples)
+            full_audio.append(crossfaded_audio)
+            
+            # Update the current total length - for stereo, we use shape[1] which is the time dimension
+            current_samples = sum(chunk.shape[1] for chunk in full_audio)
+            context_window = next_audio[:, -int(self.sampling_rate * 10):]
+
+        # Concatenate along time dimension (dim=1) for stereo
+        full_audio_tensor = torch.cat(full_audio, dim=1)[:, :target_samples]
+        full_audio_tensor = self._post_process_audio(full_audio_tensor)
         
-    def save_audio(self, audio_data, filename):
-        """
-        Save generated audio to MP3 file efficiently
+        # Only convert to CPU/numpy at the very end
+        return full_audio_tensor.cpu().numpy()
+
+    def _find_optimal_splice_point(self, segment1, segment2, window_size):
+        if segment1.shape[1] < window_size or segment2.shape[1] < window_size:
+            return min(segment1.shape[1], segment2.shape[1], window_size)
         
-        :param audio_data: Numpy array of audio data (mono)
-        :param filename: Output filename
-        """
-        # Direct conversion to MP3 without temporary file
-        try:
-            # For mono audio
-            # Ensure correct format - int16 is most compatible with pydub
-            audio_data = (audio_data * 32767).astype(np.int16)
+        # For stereo, we'll analyze both channels and take the average
+        correlations = []
+        for channel in range(segment1.shape[0]):  # Use actual shape to determine channels
+            correlation = torch.nn.functional.conv1d(
+                segment1[channel].flip(0).unsqueeze(0).unsqueeze(0), 
+                segment2[channel, :window_size].unsqueeze(0).unsqueeze(0)
+            ).squeeze()
+            correlations.append(correlation)
+        
+        # Average the correlations from all channels
+        avg_correlation = torch.stack(correlations).mean(dim=0)
+        max_idx = torch.argmax(torch.abs(avg_correlation)).item()
+        optimal_overlap = window_size - abs(max_idx - (window_size - 1))
+        return max(optimal_overlap, window_size // 2)
+
+    def _improved_crossfade(self, segment1, segment2, overlap_samples):
+        actual_overlap = min(overlap_samples, segment1.shape[1], segment2.shape[1])
+        if actual_overlap <= 0:
+            return torch.cat([segment1, segment2], dim=1)
+        
+        # Create fade curves directly on GPU
+        t = torch.linspace(0, 1, actual_overlap).to(self.device)
+        fade_in = torch.pow(t, 0.5)
+        fade_out = torch.pow(1 - t, 0.5)
+        
+        # For stereo, we need to apply the crossfade to each channel separately
+        crossfaded_channels = []
+        for channel in range(segment1.shape[0]):  # Use actual shape to determine channels
+            # Apply crossfade directly on GPU for this channel
+            crossfaded = segment1[channel, -actual_overlap:] * fade_out + segment2[channel, :actual_overlap] * fade_in
+            
+            # Create the full crossfaded segment for this channel
+            full_channel = torch.cat([segment1[channel, :-actual_overlap], crossfaded, segment2[channel, actual_overlap:]])
+            crossfaded_channels.append(full_channel)
+        
+        # Stack channels back together
+        return torch.stack(crossfaded_channels)
+
+    def _detect_high_pitch_issue(self, audio_data, threshold=0.65):
+        if audio_data is None or audio_data.shape[1] < 1024:
+            return False
+        
+        sample_size = 1024
+        max_samples = 5
+        channel_results = []
+        
+        # Determine number of channels from the actual audio tensor
+        num_channels = audio_data.shape[0]
+        
+        for channel in range(num_channels):
+            channel_data = audio_data[channel]
+            samples = []
+            
+            if len(channel_data) <= sample_size:
+                samples.append(channel_data)
+            else:
+                for _ in range(min(max_samples, len(channel_data) // sample_size)):
+                    max_start = max(0, len(channel_data) - sample_size)
+                    start = random.randint(0, max_start)
+                    end = min(start + sample_size, len(channel_data))
+                    samples.append(channel_data[start:end])
+            
+            if not samples:
+                continue
                 
-            audio = AudioSegment(
-                audio_data.tobytes(),
-                frame_rate=self.sampling_rate,
-                sample_width=2,  # 16-bit
-                channels=1  # Explicitly set to mono
-            )
-            audio.export(filename, format="mp3")
+            avg_spectrum = torch.zeros(sample_size // 2, device=self.device)
+            for sample in samples:
+                if len(sample) < sample_size:
+                    padded = torch.nn.functional.pad(sample, (0, sample_size - len(sample)))
+                    fft = torch.abs(torch.fft.fft(padded)[:sample_size // 2])
+                else:
+                    fft = torch.abs(torch.fft.fft(sample[:sample_size])[:sample_size // 2])
+                avg_spectrum += fft
             
-        except Exception as e:
-            # Fallback to scipy method with temporary file if direct conversion fails
-            logger.warning(f"Direct MP3 conversion failed: {e}. Using fallback method.")
-            temp_wav = f"temp_audio_{random.randint(0, 1000)}.wav"
-            scipy.io.wavfile.write(temp_wav, rate=self.sampling_rate, data=audio_data)
+            avg_spectrum /= len(samples)
+            total_energy = torch.sum(avg_spectrum)
             
-            audio = AudioSegment.from_wav(temp_wav)
-            audio.export(filename, format="mp3")
+            if total_energy <= 0:
+                continue
+                
+            avg_spectrum = avg_spectrum / total_energy
+            high_freq_energy = torch.sum(avg_spectrum[sample_size // 4:])
+            channel_results.append((high_freq_energy / total_energy) > threshold)
+        
+        # Return True if any channel has high pitch issues
+        return any(channel_results) if channel_results else False
+    
+    def _post_process_audio(self, audio_data):
+        audio_data = audio_data.float()
+        
+        # Process each channel separately
+        num_channels = audio_data.shape[0]  # Get actual number of channels
+        
+        for channel in range(num_channels):
+            channel_data = audio_data[channel]
             
-            if os.path.exists(temp_wav):
-                os.remove(temp_wav)
+            if torch.max(torch.abs(channel_data)) > 0:
+                max_val = torch.max(torch.abs(channel_data))
+                scale_factor = 0.8 / max_val if max_val > 0 else 1.0
+                audio_data[channel] = channel_data * scale_factor
+            
+            # Check for high pitch issues in this channel
+            # Create a temporary tensor with the right shape [channels, samples]
+            temp_channel_data = channel_data.unsqueeze(0)  # Add channel dimension
+            
+            if self._detect_high_pitch_issue(temp_channel_data, threshold=0.55):
+                window_size = 3
+                filtered_channel = torch.nn.functional.conv1d(
+                    channel_data.unsqueeze(0).unsqueeze(0), 
+                    torch.ones(1, 1, window_size, device=self.device)/window_size, 
+                    padding=1
+                ).squeeze()
+                audio_data[channel] = filtered_channel
+                
+        return audio_data
+            
+    def save_audio(self, audio_data, filename):
+        # For stereo, transpose to [samples, channels] format
+        audio_data_transposed = audio_data.T
+        
+        # Ensure audio_data is a NumPy array of int16
+        audio_data_int16 = (audio_data_transposed * 32767).astype(np.int16)
+
+        audio = AudioSegment(
+            audio_data_int16.tobytes(),
+            frame_rate=self.sampling_rate,
+            sample_width=2,
+            channels=audio_data.shape[0]  # Use actual number of channels
+        )
+        audio.export(filename, format="mp3")

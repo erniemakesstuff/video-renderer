@@ -49,6 +49,7 @@ class MovieRenderer(object):
         base_music = AudioFileClip(baseline_audio_file).with_volume_scaled(reduce_to_percent) # 200sec
         rise_music = AudioFileClip(rise_audio_file).with_volume_scaled(reduce_to_percent) # 60 sec
         climax_music = AudioFileClip(climax_audio_file).with_volume_scaled(reduce_to_percent) # 30 sec
+        climax_music.crossfadein
         ordered_clips = []
         start_time = 0
         
@@ -75,7 +76,61 @@ class MovieRenderer(object):
             ordered_clips.append(base_music.with_start(start_time))
             start_time += base_music.duration
         
-        return ordered_clips
+        return self.__crossfade_audio_clips(ordered_clips)
+    
+
+    def __crossfade_audio_clips(self, audio_clips, crossfade_duration=5.0):
+        """
+        Crossfades a list of AudioFileClip objects and returns a list of AudioFileClip objects.
+
+        Parameters:
+        audio_clips (list): List of AudioFileClip objects
+        crossfade_duration (float): Duration of crossfade in seconds
+
+        Returns:
+        list: List of AudioFileClip objects with crossfades applied.
+        """
+        if len(audio_clips) < 2:
+            return audio_clips  # No crossfade needed if only one or zero clips
+
+        final_clips = []
+        final_clips.append(audio_clips[0])
+
+        for i in range(1, len(audio_clips)):
+            clip1 = final_clips[-1]
+            clip2 = audio_clips[i]
+
+            # Calculate crossfade samples
+            crossfade_samples = int(crossfade_duration * clip1.fps)
+            overlap_samples = min(crossfade_samples, clip1.duration * clip1.fps, clip2.duration * clip2.fps)
+
+            # Get audio data
+            audio1 = clip1.to_soundarray()
+            audio2 = clip2.to_soundarray()
+
+            # Create fade curves
+            fade_in = np.linspace(0, 1, overlap_samples)
+            fade_out = np.linspace(1, 0, overlap_samples)
+
+            # Apply crossfade
+            overlap1 = audio1[-overlap_samples:] * fade_out[:, np.newaxis]
+            overlap2 = audio2[:overlap_samples] * fade_in[:, np.newaxis]
+            crossfaded = overlap1 + overlap2
+
+            # Combine audio clips
+            if len(audio1.shape) == 1: # mono
+                combined_audio = np.concatenate([audio1[:-overlap_samples], crossfaded, audio2[overlap_samples:]])
+            else: # stereo
+                combined_audio = np.concatenate([audio1[:-overlap_samples], crossfaded, audio2[overlap_samples:]])
+
+            # Create new AudioClip
+            combined_clip = AudioClip(lambda t: combined_audio[int(t * clip1.fps)], fps=clip1.fps)
+            final_clips[-1] = combined_clip
+
+            if i < len(audio_clips) - 1:
+                final_clips.append(audio_clips[i])
+
+        return final_clips
     
     def perform_render(self, is_short_form, thumbnail_text,
                        final_render_sequences,
