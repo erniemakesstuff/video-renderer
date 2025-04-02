@@ -18,7 +18,8 @@ class MusicCallbackHandler(object):
         return cls.instance
     
     def __init__(self):
-        self.music_scoring = MusicScoring()
+        if not hasattr(self, '_initialized'):
+            self.music_scoring = MusicScoring()
     
     # Common interface.
     def handle_message(self, mediaEvent) -> bool:
