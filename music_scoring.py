@@ -16,7 +16,7 @@ class MusicScoring(object):
         return cls.instance
     
     def __init__(self):
-        if hasattr(self, '_initialized'):
+        if hasattr(self, 'music_generator'):
             return
         
         self.music_generator = MusicGeneration()

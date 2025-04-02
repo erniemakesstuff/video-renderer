@@ -35,12 +35,16 @@ class GeminiClient(object):
     def __new__(cls):
         if not hasattr(cls, 'instance'):
              cls.instance = super(GeminiClient, cls).__new__(cls)
+             cls.instance.initialized = False
         return cls.instance
+    
     def __init__(self):
-        if hasattr(self, '_initialized'):
+        if self.initialized == True:
             return
         
         vertexai.init(project="three-doors-422720", location="us-west1")
+        self.initialized = True
+        
     # API Docs: https://cloud.google.com/vertex-ai/generative-ai/docs/reference/python/latest
     def call_model(self, system_instruction, prompt_text) -> str:
         self.model = GenerativeModel("gemini-2.0-flash",

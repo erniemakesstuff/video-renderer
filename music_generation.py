@@ -18,8 +18,9 @@ class MusicGeneration(object):
         return cls.instance
     
     def __init__(self, model_name="facebook/musicgen-stereo-small"):
-        if hasattr(self, '_initialized'):
-            return
+        if hasattr(self, 'processor'):
+            return  # Already initialized
+
         torch.set_grad_enabled(False)
         self.device = "cuda" if torch.cuda.is_available() else None
         if self.device is None:

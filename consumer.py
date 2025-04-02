@@ -37,7 +37,7 @@ class Consumer:
         return cls.instance
     
 
-    def start_poll(self, poll_delay_seconds = 5, visibility_timeout_seconds = 60):
+    def start_poll(self, poll_delay_seconds = 200, visibility_timeout_seconds = 420):
         while True:
             try:
                 print('polling...' + str(datetime.datetime.now()))

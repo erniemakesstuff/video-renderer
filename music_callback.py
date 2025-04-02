@@ -18,7 +18,7 @@ class MusicCallbackHandler(object):
         return cls.instance
     
     def __init__(self):
-        if not hasattr(self, '_initialized'):
+        if not hasattr(self, 'music_scoring'):
             self.music_scoring = MusicScoring()
     
     # Common interface.
