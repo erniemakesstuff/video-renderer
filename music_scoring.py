@@ -52,8 +52,10 @@ class MusicScoring(object):
             json.dump(metadata, file, indent=4)
 
         # 5. Upload to s3 by callbackMediaID.
-        upload_file(callbackMediaID, callbackMediaID)
-        upload_file(metadata_filename, callbackMediaID + "-metadata.json")
+        if not upload_file(callbackMediaID, callbackMediaID):
+            return False
+        if not upload_file(metadata_filename, callbackMediaID + "-metadata.json"):
+            return False
 
         os.remove(baseline_audio_file)
         os.remove(rise_audio_file)
@@ -61,4 +63,6 @@ class MusicScoring(object):
         os.remove(temp_source_file)
         os.remove(callbackMediaID)
         os.remove(metadata_filename)
+
+        return True
         
