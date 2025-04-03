@@ -37,7 +37,7 @@ class Consumer:
         return cls.instance
     
 
-    def start_poll(self, poll_delay_seconds = 200, visibility_timeout_seconds = 420):
+    def start_poll(self, poll_delay_seconds = 20, visibility_timeout_seconds = 420):
         while True:
             try:
                 print('polling...' + str(datetime.datetime.now()))
@@ -47,3 +47,4 @@ class Consumer:
             except Exception as ex:
                 print('exception occurred: ' + str(ex))
                 logger.info("exception in poller: " + traceback.format_exc())
+                time.sleep(60)

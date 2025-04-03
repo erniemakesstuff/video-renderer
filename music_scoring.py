@@ -30,7 +30,7 @@ class MusicScoring(object):
             return False
         
         # 1. Download media.
-        temp_source_file = str(random.Int(0, 1000)) + "temp_media.mp4"
+        temp_source_file = str(random.randint(0, 1000)) + "temp_media.mp4"
         download_file(sourceMediaID, temp_source_file)
         # 2. collect noteable times.
         noteable_timestamps_seconds, metadata = self.context_generator.get_noteable_timestamps(temp_source_file)
@@ -38,7 +38,7 @@ class MusicScoring(object):
         baseline = self.music_generator.generate_music([prompt, 'Rhythmic, steady score for an approaching battle.'], 200)
         rise = self.music_generator.generate_music([prompt, 'Rising tesnion, building suspense to a comming climax. Something momentus is just about to happen!'], 60)
         climax = self.music_generator.generate_music([prompt, 'Climactic, finale music signaling a grand crescendo. Exciting and high energy.'], 60)
-        temp_gen_audio_prefix = str(random.Int(0, 1000)) + "temp_gen_audio_"
+        temp_gen_audio_prefix = str(random.randint(0, 1000)) + "temp_gen_audio_"
         baseline_audio_file = temp_gen_audio_prefix + "baseline.mp3"
         rise_audio_file = temp_gen_audio_prefix + "rise.mp3"
         climax_audio_file = temp_gen_audio_prefix + "climax.mp3"
@@ -49,7 +49,7 @@ class MusicScoring(object):
         self.movie_renderer.render_video_with_music_scoring(temp_source_file, baseline, rise, climax,
                                                             noteable_timestamps_seconds, callbackMediaID)
         
-        metadata_filename = str(random.Int(0, 1000)) + "data.json"
+        metadata_filename = str(random.randint(0, 1000)) + "data.json"
 
         with open(metadata_filename, 'w') as file:
             json.dump(metadata, file, indent=4)
