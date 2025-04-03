@@ -42,9 +42,9 @@ class MusicScoring(object):
         baseline_audio_file = temp_gen_audio_prefix + "baseline.mp3"
         rise_audio_file = temp_gen_audio_prefix + "rise.mp3"
         climax_audio_file = temp_gen_audio_prefix + "climax.mp3"
-        self.music_generator.save_audio(baseline_audio_file, baseline)
-        self.music_generator.save_audio(rise_audio_file, rise)
-        self.music_generator.save_audio(climax_audio_file, climax)
+        self.music_generator.save_audio(baseline, baseline_audio_file)
+        self.music_generator.save_audio(rise, rise_audio_file)
+        self.music_generator.save_audio(climax, climax_audio_file)
         # 4. Apply music to final output media; crossfade sfx, etc.
         self.movie_renderer.render_video_with_music_scoring(temp_source_file, baseline, rise, climax,
                                                             noteable_timestamps_seconds, callbackMediaID)

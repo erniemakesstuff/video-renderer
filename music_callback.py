@@ -29,6 +29,7 @@ class MusicCallbackHandler(object):
 
     
     def handle_render(self, mediaEvent) -> bool:
+        print('received a message! ' + mediaEvent.ContentLookupKey)
         return self.handle_music_generation(mediaEvent=mediaEvent)
     
     def handle_music_generation(self, mediaEvent) -> bool:
