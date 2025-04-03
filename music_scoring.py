@@ -38,7 +38,7 @@ class MusicScoring(object):
         baseline = self.music_generator.generate_music([prompt, 'Rhythmic, steady score for an approaching battle.'], 200)
         rise = self.music_generator.generate_music([prompt, 'Rising tesnion, building suspense to a comming climax. Something momentus is just about to happen!'], 60)
         climax = self.music_generator.generate_music([prompt, 'Climactic, finale music signaling a grand crescendo. Exciting and high energy.'], 60)
-        temp_gen_audio_prefix = str(random.randint(0, 1000)) + "temp_gen_audio_"
+        temp_gen_audio_prefix = "578temp_gen_audio_"#str(random.randint(0, 1000)) + "temp_gen_audio_"
         baseline_audio_file = temp_gen_audio_prefix + "baseline.mp3"
         rise_audio_file = temp_gen_audio_prefix + "rise.mp3"
         climax_audio_file = temp_gen_audio_prefix + "climax.mp3"
@@ -46,7 +46,7 @@ class MusicScoring(object):
         self.music_generator.save_audio(rise, rise_audio_file)
         self.music_generator.save_audio(climax, climax_audio_file)
         # 4. Apply music to final output media; crossfade sfx, etc.
-        self.movie_renderer.render_video_with_music_scoring(temp_source_file, baseline, rise, climax,
+        self.movie_renderer.render_video_with_music_scoring(temp_source_file, baseline_audio_file, rise_audio_file, climax_audio_file,
                                                             noteable_timestamps_seconds, callbackMediaID)
         
         metadata_filename = str(random.randint(0, 1000)) + "data.json"

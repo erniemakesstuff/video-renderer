@@ -4,6 +4,7 @@ import os
 from music_generation import MusicGeneration
 from movie_render import MovieRenderer
 from context_generator import ContextGenerator
+from music_scoring import MusicScoring
 os.environ["PATH"] += os.pathsep + r"C:\ffmpeg\bin"  # Adjust path to where you installed FFmpeg
 print('start time')
 print(datetime.datetime.now())
@@ -37,13 +38,18 @@ print('generated context')
 # Input: Small, mono, 200 seconds. Time for generation:  5min.
 #TBD
 # Input: Small, stereo, 200 seconds. Time for generation: 5min
-context_inst = ContextGenerator()
-source_file = './tasteless-rush.mp4'#'./tasteless-rush.mp4'
-noteable_timestamps_seconds, metadata = context_inst.get_noteable_timestamps(source_file)
-print('received metadata: ' + json.dumps(metadata))
-score_inst =  MovieRenderer()
-score_inst.render_video_with_music_scoring(source_file, 'terran-base-battle-stereo.mp3', 'terran-rise-battle-stereo.mp3', 'terran-climax-battle-stereo.mp3', noteable_timestamps_seconds, 'test-render.mp4')
+#context_inst = ContextGenerator()
+#source_file = './tasteless-rush.mp4'#'./tasteless-rush.mp4'
+#noteable_timestamps_seconds, metadata = context_inst.get_noteable_timestamps(source_file)
+#print('received metadata: ' + json.dumps(metadata))
+#score_inst =  MovieRenderer()
+#score_inst.render_video_with_music_scoring(source_file, 'terran-base-battle-stereo.mp3', 'terran-rise-battle-stereo.mp3', 'terran-climax-battle-stereo.mp3', noteable_timestamps_seconds, 'test-render.mp4')
 
+
+# Retry Scoring
+music_scoring_inst = MusicScoring()
+print('attempting scoring')
+music_scoring_inst.score_media(prompt='wip', sourceMediaID='wip', callbackMediaID='Render-Video-080070a6-e666-4e46-98ee-abffc5276890.mp4')
 
 
 
