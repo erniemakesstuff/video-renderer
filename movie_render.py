@@ -47,7 +47,7 @@ class MovieRenderer(object):
         pass
 
     def __create_background_music_scoring(self, baseline_audio_file, rise_audio_file, climax_audio_file, important_moments_seconds, end_time):
-        reduce_to_percent = 0.3
+        reduce_to_percent = 0.2
         base_music = AudioFileClip(baseline_audio_file).with_volume_scaled(reduce_to_percent) # 200sec
         rise_music = AudioFileClip(rise_audio_file).with_volume_scaled(reduce_to_percent) # 60 sec
         climax_music = AudioFileClip(climax_audio_file).with_volume_scaled(reduce_to_percent) # 30 sec
