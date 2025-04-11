@@ -42,7 +42,11 @@ class MovieRenderer(object):
             background_music_layer
         ))
         composite_video = video_clip.with_audio(composite_audio).with_duration(video_clip.duration)
-        composite_video.write_videofile(output_filename, fps=60, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', '16:9'])
+        aspect_ratio = '16:9'
+        if composite_video.w < composite_video.h:
+            aspect_ratio = '9:16'
+
+        composite_video.write_videofile(output_filename, fps=60, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', aspect_ratio])
         composite_video.close()
         pass
 
