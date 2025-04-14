@@ -30,6 +30,118 @@ class MovieRenderer(object):
         if not hasattr(cls, 'instance'):
             cls.instance = super(MovieRenderer, cls).__new__(cls)
         return cls.instance
+    
+    def process_video_new_style(self, input_video_path: str, output_filename: str):
+        """
+        Processes a video file using the newer MoviePy API style:
+        1. Rotates slightly (expanding frame) using with_effects([rotate(...)]).
+        2. Increases speed by 2% using with_effects([speedx(...)]).
+        3. Adds a semi-transparent text watermark.
+        4. Adds thin top/bottom border lines with shifted content.
+        5. Saves the output, removing metadata and ensuring a new MD5 hash.
+        Assumes 'rotate' and 'speedx' are available in the global namespace.
+
+        Args:
+            input_video_path: Path to the source video file.
+            output_filename: Path where the processed video will be saved.
+        """
+        original_clip = None
+        final_clip = None
+
+        try:
+            logger.info(f"Starting processing for video: {input_video_path} using new MoviePy style.")
+
+            # Load the original video
+            original_clip = VideoFileClip(input_video_path)
+            logger.debug(f"Loaded clip: duration={original_clip.duration:.2f}s, size={original_clip.size}")
+
+            # 1. Slightly rotate the image by 2 degrees using with_effects()
+            #    expand=True increases canvas size to fit the rotated rectangle.
+            rotation_angle = 2 # degrees
+            # --- CORRECTED: Assuming rotate is available directly ---
+            # Ensure 'rotate' is actually defined/imported before this point
+            rotated_clip = original_clip.with_effects([
+                vfx.Rotate(angle=rotation_angle, expand=True, resample='bilinear')
+            ])
+            # --- END CORRECTION ---
+            w_rot, h_rot = rotated_clip.size # Get dimensions *after* rotation
+            logger.debug(f"Applied rotation. New size: {rotated_clip.size}")
+
+            # 2. Increase the video speed by 2% (factor = 1.02)
+            #    Using with_effects() method with the assumed 'speedx' function.
+            speed_factor = 1.02
+            # --- CORRECTED: Assuming speedx is available directly ---
+            # Ensure 'speedx' is actually defined/imported before this point
+            sped_up_clip = rotated_clip.with_effects([
+                vfx.MultiplySpeed(factor=speed_factor),
+                vfx.MultiplyColor(1.1),
+                vfx.LumContrast(0.1, 0.4)
+            ])
+            # --- END CORRECTION ---
+            new_duration = sped_up_clip.duration # Duration is now shorter
+            logger.debug(f"Applied speed change (x{speed_factor}). New duration: {new_duration:.2f}s")
+
+
+            # 4. Add thin horizontal lines (top/bottom) with shifted content
+            line_height = 15
+            shift_amount = 30
+            top_crop = sped_up_clip.cropped(y1=0, height=line_height, width=w_rot)
+            top_line_layer = (top_crop
+                            .with_position((shift_amount, 0))
+                            .with_duration(new_duration))
+            bottom_crop = sped_up_clip.cropped(y1=h_rot - line_height, height=line_height, width=w_rot)
+            bottom_line_layer = (bottom_crop
+                                .with_position((-shift_amount, h_rot - line_height))
+                                .with_duration(new_duration))
+            logger.debug("Created shifted top/bottom line layers.")
+
+            # 5. Combine the layers into the final video
+            all_clips = []
+            watermark_clips = self.__get_watermark_clips("TestRenderAAAA", original_clip.duration)
+            all_clips.append(sped_up_clip)
+            all_clips.append(top_line_layer)
+            all_clips.append(bottom_line_layer)
+            all_clips.extend(watermark_clips)
+            final_clip = CompositeVideoClip(
+                clips=all_clips,
+                size=(w_rot, h_rot)
+            )
+            
+            final_clip = final_clip.with_duration(new_duration)
+            logger.debug("Composited final video layers.")
+
+            # 6. Write out the final video file
+            logger.info(f"Writing final processed video to: {output_filename}")
+            final_clip.write_videofile(
+                output_filename,
+                codec='libx264',
+                audio_codec='aac',
+                preset='medium',
+                ffmpeg_params=["-map_metadata", "-1", "-crf", "20"],
+                threads=os.cpu_count(),
+                logger='bar',
+                temp_audiofile=f'temp-audio-{random.randint(1000,9999)}.m4a',
+                remove_temp=True
+            )
+            logger.info("Video processing completed successfully.")
+
+        except NameError as ne:
+            logger.error(f"NameError: {ne}. An effect function (like 'rotate' or 'speedx') might not be available.", exc_info=True)
+            logger.error("Ensure 'from moviepy import *' or specific effect imports are used in the calling environment.")
+            raise
+        except Exception as e:
+            logger.error(f"Error during video processing for '{input_video_path}': {e}", exc_info=True)
+            raise
+        finally:
+            # --- Cleanup ---
+            logger.debug("Cleaning up video clips...")
+            if original_clip:
+                try:
+                    original_clip.close()
+                    logger.debug("Original VideoFileClip closed.")
+                except Exception as e_close:
+                    logger.warning(f"Exception occurred while closing original_clip: {e_close}")
+            logger.debug("Cleanup finished.")
 
     def render_video_with_music_scoring(self, source_video_file, baseline_audio_file,
                                         rise_audio_file, climax_audio_file, important_moments_seconds, output_filename):
@@ -45,7 +157,7 @@ class MovieRenderer(object):
         aspect_ratio = '16:9'
         if composite_video.w < composite_video.h:
             aspect_ratio = '9:16'
-
+    
         composite_video.write_videofile(output_filename, fps=60, audio=True, audio_codec="aac", ffmpeg_params=['-crf','18', '-aspect', aspect_ratio])
         composite_video.close()
         pass
@@ -467,15 +579,26 @@ class MovieRenderer(object):
     def __get_watermark_clips(self, watermark_text, duration=900):
         clips = []
         water_seg_dur = duration / 4
-        clip = TextClip(
+        clip_instance = TextClip(
             text=watermark_text,
             font="Arial", # OpenType
             color="white",
             font_size = 35,
         ).with_duration(water_seg_dur)
+
+        start_bl = 2.0
+        start_tr = water_seg_dur
+        start_br = water_seg_dur * 2
+        start_tl = water_seg_dur * 3
         # x,y offsets
-        clips.append(clip.with_position((0.05, 0.95), relative=True).with_start(2)) # bottom left
-        clips.append(clip.with_position((0.7, 0.05), relative=True).with_start(water_seg_dur)) # top right
-        clips.append(clip.with_position((0.7, 0.95), relative=True).with_start(water_seg_dur * 2)) # bottom right
-        clips.append(clip.with_position((0.05, 0.05), relative=True).with_start(water_seg_dur * 3)) # top left
+        clips.append(clip_instance.with_position(("left", "bottom")).with_start(start_bl))
+
+        # Top right: Align text's right/top to frame's right/top
+        clips.append(clip_instance.with_position(("right", "top")).with_start(start_tr))
+
+        # Bottom right: Align text's right/bottom to frame's right/bottom
+        clips.append(clip_instance.with_position(("right", "bottom")).with_start(start_br))
+
+        # Top left: Align text's left/top to frame's left/top
+        clips.append(clip_instance.with_position(("left", "top")).with_start(start_tl))
         return clips
