@@ -97,7 +97,7 @@ class MovieRenderer(object):
 
             # 5. Combine the layers into the final video
             all_clips = []
-            watermark_clips = self.__get_watermark_clips("TestRenderAAAA", original_clip.duration)
+            watermark_clips = self.__get_watermark_clips("Kherem.com", original_clip.duration)
             all_clips.append(sped_up_clip)
             all_clips.append(top_line_layer)
             all_clips.append(bottom_line_layer)

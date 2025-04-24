@@ -27,12 +27,12 @@ RUN pip install -r requirements.txt
 RUN pip install flask
 RUN pip install moviepy --timeout=1000
 # TODO: Not sure if this should be here if using transformers library...tbd.
-RUN pip install torch
-RUN pip install -U audiocraft
+RUN pip install torch --timeout=1000
+RUN pip install -U audiocraft --timeout=1000
 # Large dependency; will fail on slow connections.
 RUN pip install whisper-timestamped --timeout=1000
-RUN pip install matplotlib
-RUN pip install vertexai
+RUN pip install matplotlib --timeout=1000
+RUN pip install vertexai --timeout=1000
 EXPOSE 8080
 EXPOSE 80
 EXPOSE 443

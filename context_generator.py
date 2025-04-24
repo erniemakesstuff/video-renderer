@@ -12,6 +12,7 @@ import librosa.display
 import numpy as np
 import scipy.signal
 import matplotlib.pyplot as plt
+from s3_wrapper import upload_file_via_presigned_url, download_file_via_presigned_url
 
 from gemini import GeminiClient
 
@@ -28,6 +29,26 @@ class ContextGenerator(object):
         # TODO https://trello.com/c/HXk5OvEh
         pass
 
+
+    def transcribe_video_to_cloud(self, sourceRemoteS3Url, sinkRemoteS3Url):
+        logger.debug('attempting to transcribe resources: src ' + sourceRemoteS3Url + ' : dest ' + sinkRemoteS3Url)
+        local_video_filename = str(random.randint(0, 9999)) + "tmp_video.mp4"
+        successful_download = download_file_via_presigned_url(sourceRemoteS3Url, local_video_filename)
+        if not successful_download:
+            logger.error('failed to download source video file for transcription: ' + sourceRemoteS3Url)
+            return False
+        transcript_filename = str(random.randint(0, 9999)) + "tmp_transcript.json"
+        self.__generate_transcription_file(local_video_filename, transcript_filename, 'en')
+        successful_upload = upload_file_via_presigned_url(sinkRemoteS3Url, transcript_filename)
+        if not successful_upload:
+            logger.error('failed to upload transcription file: ' + sinkRemoteS3Url)
+            return False
+        
+        logger.debug('finished transcribing for ' + sourceRemoteS3Url)
+        os.remove(local_video_filename)
+        os.remove(transcript_filename)
+        return True
+    
     def get_noteable_timestamps(self, sourceVideoFilename, saveAsTranscriptionFilename='', saveAsFramesDirectory='.', sourceAudioFilename='.', language = 'en'):
         transcriptSegments = self.__generate_transcription_file(filename=sourceVideoFilename, saveAsFilename=saveAsTranscriptionFilename, language=language)
         noteable_times, metadata = self.__analyze_transcript(transcriptSegments)

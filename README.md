@@ -11,6 +11,9 @@ Start shell environment
 Note: Running on 5051 port to avoid localhost collision when running as sidecar.
 Set env if running locally outside container:
 `export SHARED_MEDIA_VOLUME_PATH="/Users/owner/tmp_media/"`
+
+
+View swagger docs: `/apidocs`
 ## venvs
 Creating virtual env if not present `python3 -m venv .venv`
 Activate venv shell `. ./.venv/bin/activate`
@@ -25,3 +28,5 @@ Set VisualStudioCode interpreter to your .venv path.
 `docker tag bezalel-truevine-video-renderer:latest 971422718801.dkr.ecr.us-west-2.amazonaws.com/bezalel-truevine-video-renderer:latest`
 `docker push 971422718801.dkr.ecr.us-west-2.amazonaws.com/bezalel-truevine-video-renderer:latest`
 
+# Cleanup space
+`docker system prune`
