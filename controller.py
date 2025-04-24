@@ -163,9 +163,187 @@ def create_transcription():
         inst = context_generator.ContextGenerator()
         inst.transcribe_video_to_cloud(data['sourcePresignedS3Url'], data['sinkPresignedS3Url'])
 
-    t1 = threading.Thread(target=generate_context)
+    t1 = threading.Thread(target=generate_context, daemon=True)
     t1.start()
     return "Ok"
+
+@app.route("/video-cut", methods=["POST"])
+def create_video_cuts():
+    """Create multiple video cuts based on provided parameters.
+    ---
+    description: >
+        Accepts a source video presigned URL, desired output ratio, cropping preference,
+        and an array of cut definitions (start/end times and destination presigned URLs).
+        Initiates an asynchronous process to download the source video, create each specified
+        cut according to the desired ratio and cropping settings, and upload each cut
+        to its respective presigned URL.
+
+        **Important:** Video processing can be time-consuming. This endpoint returns
+        HTTP 200 Ok immediately upon starting the process, *not* upon completion.
+        Poll for the existence of the output files at their respective sink locations
+        (using the object keys associated with the presigned URLs) to determine completion.
+        Monitor progress via logs if available.
+
+        Manual Presigned URL Generation:
+        GET: https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html
+        PUT: https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html
+
+    parameters:
+      - name: body
+        in: body
+        required: true
+        description: JSON object defining the source video and the cuts to be made.
+        schema:
+          type: object
+          required:
+            - sourceVideoUrl
+            - desiredRatio
+            - allowCropping
+            - enableSubtitles
+            - Cuts
+          properties:
+            sourceVideoUrl:
+              type: string
+              format: url
+              description: A valid S3 presigned URL allowing GET access to the source video file.
+              example: "https://your-bucket.s3.region.amazonaws.com/source/my_video.mp4?AWSAccessKeyId=..."
+            desiredRatio:
+              type: string
+              description: The desired aspect ratio for the output cuts.
+              enum: ["Portrait", "Landscape"]
+              example: "Portrait"
+            allowCropping:
+              type: boolean
+              description: Whether cropping is allowed to achieve the desired aspect ratio. If false, padding might be added.
+              example: true
+            enableSubtitles:
+              type: boolean
+              description: When true, adds subtitles to your video per-spoken-word for highest engagement.
+              example: true
+            Cuts:
+              type: array
+              description: A list of cuts to be generated from the source video.
+              minItems: 1 # Require at least one cut
+              items:
+                type: object
+                required:
+                  - presignedS3Url
+                  - startTimeSeconds
+                  - endTimeSeconds
+                properties:
+                  presignedS3Url:
+                    type: string
+                    format: url
+                    description: A valid S3 presigned URL allowing PUT access for uploading the resulting video cut.
+                    example: "https://your-bucket.s3.region.amazonaws.com/cuts/cut_1.mp4?AWSAccessKeyId=..."
+                  startTimeSeconds:
+                    type: integer
+                    format: int32
+                    description: The start time (in seconds) of the cut within the source video.
+                    example: 10
+                    minimum: 0
+                  endTimeSeconds:
+                    type: integer
+                    format: int32
+                    description: The end time (in seconds) of the cut within the source video. Must be greater than startTimeSeconds.
+                    example: 25
+                    minimum: 0 # Technically should be > startTimeSeconds
+
+    responses:
+      200:
+        description: Request accepted, video cutting process started asynchronously.
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Ok"
+              description: Confirmation that the process has been initiated.
+      400:
+        description: Bad Request - Invalid JSON payload, missing required fields, or invalid values (e.g., timecodes).
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: Description of the validation error.
+    """
+    data = request.get_json()
+
+    # --- Input Validation ---
+    if not data:
+        app.logger.warning("Received empty request body")
+        return jsonify({"error": "Request body must be JSON."}), 400
+
+    required_fields = ["sourceVideoUrl", "desiredRatio", "allowCropping", "Cuts"]
+    missing_fields = [field for field in required_fields if field not in data]
+    if missing_fields:
+        app.logger.warning(f"Request missing fields: {missing_fields}")
+        return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
+
+    source_url = data.get('sourceVideoUrl')
+    desired_ratio = data.get('desiredRatio')
+    allow_cropping = data.get('allowCropping')
+    enable_subtitles = data.get('enableSubtitles')
+    cuts_data = data.get('Cuts') # TODO: standardize to camel case.
+    if not cuts_data:
+        cuts_data = data.get('cuts')
+
+    # Validate types and values
+    errors = []
+    if not isinstance(source_url, str) or not source_url:
+        errors.append("sourceVideoUrl must be a non-empty string.")
+    if desired_ratio not in ["Portrait", "Landscape"]:
+        errors.append("desiredRatio must be either 'Portrait' or 'Landscape'.")
+    if not isinstance(allow_cropping, bool):
+        errors.append("allowCropping must be a boolean (true or false).")
+    if not isinstance(enable_subtitles, bool):
+        errors.append("enableSubtitles must be a boolean (true or false).")
+    if not isinstance(cuts_data, list) or not cuts_data:
+        errors.append("Cuts must be a non-empty list/array.")
+    else:
+        for i, cut in enumerate(cuts_data):
+            if not isinstance(cut, dict):
+                errors.append(f"Item at index {i} in Cuts must be an object.")
+                continue # Skip further checks for this item
+
+            cut_required = ["presignedS3Url", "startTimeSeconds", "endTimeSeconds"]
+            cut_missing = [f for f in cut_required if f not in cut]
+            if cut_missing:
+                errors.append(f"Cut at index {i} missing required fields: {', '.join(cut_missing)}.")
+
+            s3_url = cut.get('presignedS3Url')
+            start_time = cut.get('startTimeSeconds')
+            end_time = cut.get('endTimeSeconds')
+
+            if not isinstance(s3_url, str) or not s3_url:
+                 errors.append(f"Cut at index {i}: presignedS3Url must be a non-empty string.")
+            if not isinstance(start_time, int) or start_time < 0:
+                 errors.append(f"Cut at index {i}: startTimeSeconds must be a non-negative integer.")
+            if not isinstance(end_time, int) or end_time < 0:
+                 errors.append(f"Cut at index {i}: endTimeSeconds must be a non-negative integer.")
+            # Check if times are valid numbers before comparing
+            if isinstance(start_time, int) and isinstance(end_time, int) and end_time <= start_time:
+                 errors.append(f"Cut at index {i}: endTimeSeconds ({end_time}) must be greater than startTimeSeconds ({start_time}).")
+
+    if errors:
+        app.logger.warning(f"Validation errors in request: {errors}")
+        # Combine errors into a single message or return list
+        return jsonify({"error": "Invalid request payload.", "details": errors}), 400
+    # --- End Input Validation ---
+
+    # Define the function to run in a thread (pass validated data)
+    def process_video_cuts_async(source, ratio, cropping, subtitles, cuts):
+        pass
+
+    # Start the background process
+    app.logger.info("Request validated. Starting background thread for video cutting.")
+    thread_args = (source_url, desired_ratio, allow_cropping, enable_subtitles, cuts_data)
+    t1 = threading.Thread(target=process_video_cuts_async, args=thread_args, daemon=True)
+    t1.start()
+
+    # Return immediate confirmation
+    return jsonify({"message": "Ok"}), 200
 
 @app.route('/logs')
 def get_logs():
