@@ -2,11 +2,12 @@ import copy
 import math
 from pathlib import Path
 import random
+import shutil
 from types import SimpleNamespace
 import os
 import json
 import logging
-from typing import List
+from typing import Any, Dict, List
 
 from botocore.exceptions import ClientError
 from moviepy import *
@@ -14,6 +15,8 @@ import numpy as np
 import whisper_timestamped as whisper
 from moviepy.audio.fx import AudioFadeIn, AudioFadeOut
 from moviepy.audio.AudioClip import concatenate_audioclips
+from s3_wrapper import download_file_via_presigned_url, upload_file_via_presigned_url
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,397 @@ class MovieRenderer(object):
         if not hasattr(cls, 'instance'):
             cls.instance = super(MovieRenderer, cls).__new__(cls)
         return cls.instance
+    
+    # --- create_subclips method with setsar fix ---
+    def create_subclips(
+        self,
+        presignedSourceS3File: str,
+        ratio: str, # "Landscape" or "Portrait"
+        cropping: bool, # If True, crop to fill target AR. If False, pad to fit target AR.
+        subtitles: bool,
+        cuts: List[Dict[str, Any]]
+    ):
+        """
+        Downloads source, creates subclips, applies aspect ratio/subs, uploads.
+        Handles aspect ratio conversion correctly, especially with subtitles.
+        """
+        logger.info(f"Starting subclip creation. Target Ratio: {ratio}, Cropping: {cropping}, Subtitles: {subtitles}, Cuts: {len(cuts)}")
+
+        # Check if whisper is available if subtitles are requested
+        if subtitles and whisper is None:
+            logger.warning("Subtitles requested, but whisper_timestamped library is not installed. Disabling subtitles.")
+            subtitles = False
+
+        source_clip = None
+        temp_dir = None
+        local_source_path = None
+        whisper_segments = None
+
+        try:
+            temp_dir = tempfile.mkdtemp(prefix="subclip_")
+            logger.info(f"Created temporary directory: {temp_dir}")
+            source_suffix = Path(presignedSourceS3File.split('?')[0]).suffix or ".mp4"
+            local_source_path = os.path.join(temp_dir, f"source_video{source_suffix}")
+
+            logger.info(f"Downloading source video...")
+            if not download_file_via_presigned_url(presignedSourceS3File, local_source_path):
+                raise IOError("Failed to download source video.")
+            logger.info(f"Source video downloaded to: {local_source_path}")
+
+            if not Path(local_source_path).is_file() or os.path.getsize(local_source_path) == 0:
+                raise IOError(f"Downloaded source file is invalid or empty: {local_source_path}")
+
+            logger.info("Loading source video with MoviePy...")
+            # Load with target_resolution=None to avoid initial resize if possible
+            source_clip = VideoFileClip(local_source_path, audio=True)
+            logger.info(f"Source video loaded. Duration: {source_clip.duration:.2f}s, Size: {source_clip.size}")
+
+            # --- Transcription Logic ---
+            if subtitles:
+                audio_path = os.path.join(temp_dir, "source_audio.aac")
+                logger.info("Attempting audio extraction for transcription...")
+                try:
+                    if source_clip.audio:
+                        source_clip.audio.write_audiofile(audio_path, codec='aac', bitrate='192k', logger=None)
+                        logger.info(f"Audio extracted to {audio_path}")
+                        # Use self reference as create_subclips is part of the class
+                        whisper_segments = self.__get_transcribed_text(audio_path, language="en") # Assuming 'en', make configurable
+                        if whisper_segments is None:
+                            logger.warning("Transcription failed or returned no segments. Subtitles will be skipped for all clips.")
+                        else:
+                            logger.info(f"Transcription complete. Found {len(whisper_segments)} segments.")
+                    else:
+                        logger.warning("Source video lacks audio. Cannot generate subtitles.")
+                        subtitles = False # Disable permanently if no source audio
+                except Exception as audio_ex:
+                    logger.error(f"Error during audio extraction/transcription: {audio_ex}", exc_info=True)
+                    subtitles = False # Disable permanently on error
+                finally:
+                    if Path(audio_path).exists():
+                        try: os.remove(audio_path)
+                        except OSError as e: logger.warning(f"Could not remove temp audio file {audio_path}: {e}")
+            # --- End Transcription Logic ---
+
+            # Process each cut
+            for i, cut_info in enumerate(cuts):
+                start_time = cut_info.get('startTimeSeconds', 0.0)
+                end_time = cut_info.get('endTimeSeconds', source_clip.duration)
+                upload_url = cut_info.get('presignedS3Url')
+                subclip_index = i + 1
+
+                if not upload_url:
+                    logger.warning(f"Skipping subclip {subclip_index}: Missing 'presignedS3Url'.")
+                    continue
+
+                logger.info(f"Processing subclip {subclip_index}/{len(cuts)}: Time {start_time:.2f}s - {end_time:.2f}s")
+
+                # Validate times
+                if start_time < 0: start_time = 0
+                if end_time > source_clip.duration:
+                    logger.warning(f"Subclip {subclip_index}: end time ({end_time:.2f}s) exceeds source duration ({source_clip.duration:.2f}s). Clamping.")
+                    end_time = source_clip.duration
+                if start_time >= end_time:
+                    logger.warning(f"Skipping subclip {subclip_index}: start time ({start_time:.2f}s) not before end time ({end_time:.2f}s).")
+                    continue
+
+                subclip_instance = None
+                processed_video_clip = None # Clip potentially resized/cropped by MoviePy
+                final_clip_for_render = None
+                subtitle_clips_list = []
+                local_output_path = os.path.join(temp_dir, f"subclip_{subclip_index}.mp4")
+                moviepy_handled_geometry = False
+
+                try:
+                    logger.debug(f"Extracting subclip {subclip_index}...")
+                    # Using subclipped as requested
+                    subclip_instance = source_clip.subclipped(start_time, end_time)
+
+                    w_src, h_src = subclip_instance.size
+                    if h_src == 0 or w_src == 0:
+                        logger.error(f"Subclip {subclip_index} has zero width or height ({w_src}x{h_src}). Cannot process.")
+                        continue
+                    src_aspect = w_src / h_src
+
+                    is_target_portrait = ratio.lower() == "portrait"
+                    if is_target_portrait:
+                        w_target, h_target = 1080, 1920
+                        target_aspect_val = 9 / 16
+                        target_aspect_str = "9:16"
+                    else: # Landscape
+                        w_target, h_target = 1920, 1080
+                        target_aspect_val = 16 / 9
+                        target_aspect_str = "16:9"
+
+                    aspect_tolerance = 0.01
+                    aspect_match = abs(src_aspect - target_aspect_val) < aspect_tolerance
+
+                    # Base ffmpeg params (codec, quality, etc.)
+                    base_ffmpeg_params = ['-crf', '20', '-preset', 'medium']
+                    # This list will hold FFmpeg filter arguments (e.g., ['-vf', 'filter_string'])
+                    vf_filter_params = []
+                    # This list will hold the actual filter strings (e.g., "scale=...", "setsar=1")
+                    vf_filters_list = []
+
+                    # --- Determine Processing Path ---
+                    process_with_moviepy_geometry = subtitles
+
+                    if process_with_moviepy_geometry:
+                        logger.debug(f"Subclip {subclip_index}: Processing geometry using MoviePy (subtitles enabled).")
+                        moviepy_handled_geometry = True # Assume MoviePy will handle it
+
+                        temp_clip = subclip_instance
+
+                        if aspect_match:
+                            if w_src != w_target or h_src != h_target:
+                                logger.debug(f"Subclip {subclip_index}: AR match, resizing from {w_src}x{h_src} to {w_target}x{h_target}.")
+                                processed_video_clip = temp_clip.resized(new_size=(w_target, h_target))
+                            else:
+                                logger.debug(f"Subclip {subclip_index}: AR and dimensions match. No resize needed.")
+                                processed_video_clip = temp_clip
+                        else: # Aspect ratios differ
+                            if cropping:
+                                logger.debug(f"Subclip {subclip_index}: AR mismatch, cropping to {w_target}x{h_target}.")
+                                if is_target_portrait: # Crop width
+                                    crop_width = h_src * target_aspect_val
+                                    logger.debug(f"Applying .cropped(): x_center={w_src/2}, width={crop_width}")
+                                    processed_video_clip = temp_clip.cropped(x_center=w_src/2, width=crop_width).resized(new_size=(w_target, h_target))
+                                else: # Crop height
+                                    crop_height = w_src / target_aspect_val
+                                    logger.debug(f"Applying .cropped(): y_center={h_src/2}, height={crop_height}")
+                                    processed_video_clip = temp_clip.cropped(y_center=h_src/2, height=crop_height).resized(new_size=(w_target, h_target))
+                            else: # Padding
+                                logger.debug(f"Subclip {subclip_index}: AR mismatch, padding to {w_target}x{h_target}.")
+                                scaled_clip = temp_clip.resized(height=h_target) if temp_clip.aspect_ratio < target_aspect_val else temp_clip.resized(width=w_target)
+                                background = ColorClip(size=(w_target, h_target), color=(0,0,0), duration=scaled_clip.duration)
+                                processed_video_clip = CompositeVideoClip([background, scaled_clip.with_position("center")], size=(w_target, h_target))
+
+                        # --- Generate and Composite Subtitles ---
+                        if whisper_segments:
+                           logger.info(f"Generating subtitles for subclip {subclip_index}...")
+                           relevant_segments = []
+                           subclip_duration_secs = end_time - start_time
+                           for seg in whisper_segments:
+                               # ... (Segment filtering logic - unchanged) ...
+                               seg_start = seg.get('start', 0); seg_end = seg.get('end', 0)
+                               if max(start_time, seg_start) < min(end_time, seg_end):
+                                   adj_seg = copy.deepcopy(seg)
+                                   adj_seg['start'] = max(0, seg_start - start_time)
+                                   adj_seg['end'] = min(subclip_duration_secs, seg_end - start_time)
+                                   if adj_seg['end'] > adj_seg['start']:
+                                       if 'words' in adj_seg:
+                                           adj_words = []
+                                           for word in seg.get('words', []):
+                                               word_start = word.get('start', 0); word_end = word.get('end', 0)
+                                               if max(start_time, word_start) < min(end_time, word_end):
+                                                    adj_word = copy.deepcopy(word)
+                                                    adj_word['start'] = max(0, word_start - start_time)
+                                                    adj_word['end'] = min(subclip_duration_secs, word_end - start_time)
+                                                    if adj_word['end'] > adj_word['start']: adj_words.append(adj_word)
+                                           adj_seg['words'] = adj_words
+                                           if not adj_words and not adj_seg.get('text','').strip(): continue
+                                       relevant_segments.append(adj_seg)
+
+                           if relevant_segments:
+                               # Using the class's own helper method
+                               subtitle_clips_list = self._generate_subtitle_text_clips_for_subclip(
+                                   segments=relevant_segments, is_short_form=is_target_portrait, offset_sec=0,
+                                   clip_width=w_target, clip_height=h_target )
+                               logger.info(f"Generated {len(subtitle_clips_list)} TextClips.")
+
+                               if subtitle_clips_list:
+                                   all_clips = [processed_video_clip.with_position(("center", "center"))] + subtitle_clips_list
+                                   final_clip_for_render = CompositeVideoClip(all_clips, size=(w_target, h_target))
+                                   if processed_video_clip.audio:
+                                       final_clip_for_render = final_clip_for_render.with_audio(processed_video_clip.audio)
+                                   logger.info(f"Composited video and subtitles.")
+                               else:
+                                    logger.warning(f"Subtitle generation yielded no clips for subclip {subclip_index}. Skipping subtitle overlay.")
+                                    final_clip_for_render = processed_video_clip # Use the resized/cropped clip
+                           else:
+                                logger.info(f"No relevant subtitle segments found for subclip {subclip_index}. Skipping overlay.")
+                                final_clip_for_render = processed_video_clip
+                        else:
+                            logger.warning(f"No transcription data available for subclip {subclip_index}. Skipping subtitle overlay.")
+                            final_clip_for_render = processed_video_clip
+
+                        # Even if geometry was handled by MoviePy, we still need setsar for output
+                        vf_filters_list.append("setsar=1")
+
+                    else: # Subtitles are OFF - Use FFmpeg for geometry
+                        logger.debug(f"Subclip {subclip_index}: Processing geometry using FFmpeg (subtitles disabled).")
+                        moviepy_handled_geometry = False
+                        final_clip_for_render = subclip_instance
+
+                        # Calculate FFmpeg geometry filters
+                        if aspect_match:
+                            if w_src != w_target or h_src != h_target:
+                                vf_filters_list.append(f"scale={w_target}:{h_target}")
+                        else: # AR mismatch
+                            if cropping:
+                                if is_target_portrait: vf_filters_list.append(f"crop=w=ih*{target_aspect_val}:h=ih,scale={w_target}:{h_target}")
+                                else: vf_filters_list.append(f"crop=w=iw:h=iw/{target_aspect_val},scale={w_target}:{h_target}")
+                            else: # Pad
+                                vf_filters_list.append(f"scale={w_target}:{h_target}:force_original_aspect_ratio=decrease")
+                                vf_filters_list.append(f"pad={w_target}:{h_target}:(ow-iw)/2:(oh-ih)/2:black")
+
+                        # Add SAR to the filter list if other filters exist, or create it if needed
+                        if vf_filters_list:
+                             vf_filters_list.append("setsar=1")
+                        else:
+                             # Case where AR and size matched perfectly, still need SAR
+                             vf_filters_list.append("setsar=1")
+
+                    # --- Assemble vf_filter_params ---
+                    # Add the -vf argument ONLY if there are filters in the list
+                    if vf_filters_list:
+                        vf_filter_params.extend(['-vf', ",".join(vf_filters_list)])
+
+                    # --- Prepare Final FFmpeg Params ---
+                    final_ffmpeg_params = list(base_ffmpeg_params) # Copy base
+                    final_ffmpeg_params.extend(vf_filter_params)   # Add vf filters (incl setsar)
+                    final_ffmpeg_params.extend(['-aspect', target_aspect_str]) # Add aspect ratio hint
+
+                    logger.debug(f"Subclip {subclip_index} - Final FFmpeg Params: {final_ffmpeg_params}")
+
+                    # --- Write Video ---
+                    logger.info(f"Writing final subclip {subclip_index} to {local_output_path}...")
+                    write_params = {
+                        "codec": "libx264",
+                        "audio_codec": "aac",
+                        "audio_bitrate": "192k",
+                        "temp_audiofile": os.path.join(temp_dir, f"temp_audio_{subclip_index}.m4a"),
+                        "remove_temp": True,
+                        "ffmpeg_params": final_ffmpeg_params, # Use the final calculated params
+                        "threads": os.cpu_count(),
+                        "logger": 'bar',
+                    }
+
+                    # Ensure audio consistency
+                    has_audio = final_clip_for_render.audio is not None
+                    if not has_audio and subclip_instance.audio is not None:
+                         logger.warning(f"Subclip {subclip_index} lost audio; reattaching from original subclip.")
+                         final_clip_for_render = final_clip_for_render.with_audio(subclip_instance.audio)
+                         has_audio = True
+                    elif has_audio and final_clip_for_render is not subclip_instance and final_clip_for_render.audio is None and processed_video_clip and processed_video_clip.audio:
+                         logger.warning(f"Subclip {subclip_index} composite lost audio; reattaching from processed clip.")
+                         final_clip_for_render = final_clip_for_render.with_audio(processed_video_clip.audio)
+                         has_audio = True
+
+                    if not has_audio:
+                        logger.warning(f"Subclip {subclip_index} has no audio. Writing video only.")
+                        write_params.pop('audio_codec', None)
+                        write_params.pop('audio_bitrate', None)
+                        write_params.pop('temp_audiofile', None)
+                        final_clip_for_render.write_videofile(local_output_path, **write_params, audio=False)
+                    else:
+                        final_clip_for_render.write_videofile(local_output_path, **write_params, audio=True)
+
+                    logger.info(f"Subclip {subclip_index} written successfully.")
+
+                    # --- Upload ---
+                    logger.info(f"Uploading subclip {subclip_index}...")
+                    if not upload_file_via_presigned_url(upload_url, local_output_path):
+                        logger.error(f"Failed to upload subclip {subclip_index}.")
+                    else:
+                        logger.info(f"Subclip {subclip_index} uploaded successfully.")
+
+                except Exception as e:
+                    logger.error(f"Error processing subclip {subclip_index} ({start_time:.2f}-{end_time:.2f}): {e}", exc_info=True)
+
+                finally:
+                    # Cleanup MoviePy objects for this iteration
+                    if subclip_instance:
+                        try: subclip_instance.close()
+                        except Exception: pass
+                    if processed_video_clip and processed_video_clip is not subclip_instance:
+                         try: processed_video_clip.close()
+                         except Exception: pass
+                    if (final_clip_for_render and
+                        final_clip_for_render is not subclip_instance and
+                        final_clip_for_render is not processed_video_clip):
+                         try: final_clip_for_render.close()
+                         except Exception: pass
+                    for tc in subtitle_clips_list:
+                        try: tc.close()
+                        except Exception: pass
+                    if Path(local_output_path).exists():
+                        try: os.remove(local_output_path)
+                        except OSError as e: logger.warning(f"Could not remove temp output file {local_output_path}: {e}")
+
+        except (IOError, ClientError) as e:
+            logger.error(f"A critical error occurred (download/upload/file): {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during the subclip creation process: {e}", exc_info=True)
+            raise
+        finally:
+            # Final cleanup
+            if source_clip:
+                try: source_clip.close()
+                except Exception: logger.warning("Error closing source clip.")
+            if local_source_path and Path(local_source_path).exists():
+                try: os.remove(local_source_path)
+                except OSError as e: logger.warning(f"Could not remove source file {local_source_path}: {e}")
+            if temp_dir and Path(temp_dir).exists():
+                try: shutil.rmtree(temp_dir)
+                except Exception as e: logger.error(f"Could not remove temporary directory {temp_dir}: {e}")
+
+        logger.info("Subclip creation process finished.")
+
+
+    # --- Helper: _generate_subtitle_text_clips_for_subclip ---
+    # Using the version from the user's provided file which uses 'caption' and seems okay.
+    # Respecting the specific TextClip arguments provided by the user.
+    def _generate_subtitle_text_clips_for_subclip(self, segments, is_short_form, offset_sec, clip_width, clip_height, color="white", font_size=None, stroke_width=3):
+        """Generates MoviePy TextClip objects for subtitles."""
+        text_clips = []
+        if font_size is None:
+            scale_factor = clip_height / 1080 # Scale based on 1080p height
+            font_size = int(60 * scale_factor) # Adjust base size (60) as needed
+
+        y_pos_relative = 0.85
+        position = ('center', y_pos_relative)
+        if is_short_form:
+            position = ('center', 'center')
+        max_width_prop = 0.90
+        target_text_width = int(clip_width * max_width_prop)
+
+        logger.debug(f"Generating text clips. Target size: {clip_width}x{clip_height}, Font size: {font_size}, Position: {position}")
+
+        if not segments: return []
+
+        for segment in segments:
+             start_time = segment.get('start', 0) + offset_sec
+             end_time = segment.get('end', 0) + offset_sec
+             # Using text argument as provided in user's file for TextClip
+             text_content = segment.get('text', '').strip().upper() # Consistent casing
+
+             if not text_content or end_time <= start_time: continue
+
+             try:
+                # Using arguments as provided in user's file's version of this function
+                clip = TextClip(
+                        text=text_content,         # Correct keyword 'text'
+                        font_size=font_size,       # Correct keyword 'font_size'
+                        color=color,             # Correct keyword 'color'
+                        stroke_color="black",    # Correct keyword 'stroke_color'
+                        stroke_width=stroke_width, # Correct keyword 'stroke_width'
+                        font="Impact",           # User provided 'Impact'
+                        method='caption',        # User provided 'caption'
+                        text_align='center',          # User provided 'align'
+                        size=(target_text_width, None) # User provided 'size' with calculated width
+                    )
+                clip = clip.with_duration(end_time - start_time).with_start(start_time).with_position(position)
+                text_clips.append(clip)
+             except Exception as e:
+                  font_error = "find font" in str(e).lower() or "imagick" in str(e).lower()
+                  log_level = logging.ERROR if not font_error else logging.WARNING
+                  logger.log(log_level, f"Failed to create TextClip (font issue?={font_error}): '{text_content[:50]}...'. Error: {e}")
+                  if font_error:
+                      logger.warning("Consider installing 'Impact' font or changing the font in the code.")
+
+        logger.info(f"Generated {len(text_clips)} subtitle text clips.")
+        return text_clips
     
     def process_video_new_style(self, input_video_path: str, output_filename: str):
         """

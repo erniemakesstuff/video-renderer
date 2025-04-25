@@ -166,7 +166,7 @@ def create_transcription():
     t1 = threading.Thread(target=generate_context, daemon=True)
     t1.start()
     return "Ok"
-
+# Test sink presigned: https://truevine-media-storage.s3.amazonaws.com/test-subclip.mp4?AWSAccessKeyId=AKIA6ELKOLNI6NHCTNUY&Signature=%2FLGS2b0MmCYwVWlXMXoBg%2Fo5jaQ%3D&content-type=video%2Fmp4&Expires=1745575398
 @app.route("/video-cut", methods=["POST"])
 def create_video_cuts():
     """Create multiple video cuts based on provided parameters.
@@ -334,7 +334,8 @@ def create_video_cuts():
 
     # Define the function to run in a thread (pass validated data)
     def process_video_cuts_async(source, ratio, cropping, subtitles, cuts):
-        pass
+        inst = movie_render.MovieRenderer()
+        inst.create_subclips(source, ratio, cropping, subtitles, cuts)
 
     # Start the background process
     app.logger.info("Request validated. Starting background thread for video cutting.")
@@ -363,7 +364,7 @@ def get_logs():
                                 description: The response message
     """
     try:
-        generate_presigned_url()
+        #generate_presigned_url()
         return send_file(log_file, mimetype='text/plain')
     except FileNotFoundError:
         return "Log file not found", 404
