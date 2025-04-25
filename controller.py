@@ -6,17 +6,23 @@ from flasgger import Swagger
 import logging
 from s3_wrapper import generate_presigned_url
 app = Flask(__name__)
+app.config['SWAGGER'] = {
+    'title': 'Video Renderer API',  # Optional: Set a title for your docs
+    'uiversion': 3,              # Optional: Use Swagger UI version 3
+    # 'openapi': '3.0.2',        # Optional: Specify OpenAPI version
+    'specs_route': '/video-renderer/apidocs/' # <<< This is the crucial line
+}
 swagger = Swagger(app)
 log_file = 'app.log'
 logging.basicConfig(filename=log_file, level=logging.DEBUG, 
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-@app.route("/health")
+@app.route("/video-renderer/health")
 def health_check():
     return "Healthy"
 
-@app.route('/')
+@app.route('/video-renderer/')
 def index():
   """Index route documentation
   ---
@@ -43,7 +49,7 @@ def index():
 # watermarkText: string
 # contentLookupKey: string
 # mediaType: string
-@app.route("/movie", methods=["POST"])
+@app.route("/video-renderer/movie", methods=["POST"])
 def create_movie():
     data = request.get_json()  # Get the JSON data from the request
     def render_movie():
@@ -68,7 +74,7 @@ def create_movie():
 # saveAsPeaksFilename: collection of audio-peaks (excitement zones) w/ timestamps.
 # saveAsDirPeakFrames: frames extracted from peaks. Scene filenames defined in saveAsPeaksFilename.
 # language
-@app.route("/generate-context", methods=["POST"])
+@app.route("/video-renderer/generate-context", methods=["POST"])
 def generate_context():
     # TODO https://trello.com/c/HXk5OvEh
     data = request.get_json()  # Get the JSON data from the request
@@ -80,7 +86,7 @@ def generate_context():
     return "Ok"
 # Test presigned source: https://truevine-media-storage.s3.us-west-2.amazonaws.com/test_video_05142025.mp4?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEIX%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCXVzLXdlc3QtMiJIMEYCIQDf6HZC2wLkq5GN6wrp3AhGX3Iw2plR225kz8s8yx%2F8EQIhAM8sgLW6BPSgshxr2%2BmgKk7plpN6RHQHHh5gxByGbEkFKrkDCB4QABoMOTcxNDIyNzE4ODAxIgwXsnvWomau5pXoCdgqlgPVMXzmdewrVJWng%2Bp5V9cLVo4VsNsJRVr%2BEzmzE%2BR8%2FRTvAOa%2ByoB2wA2nWyAOiqMC%2FIrt8Pl6X1DckWk3d687hDqH6v5Ell0zL1zVsEzJsszNrI6l8sNWZxqYIzDkVsZPW%2Bu3xJJML96GGRmTafVARHaPCbc8XzldBNWr2BiD5fXsKFGDCOUcGSuPsMOKiuCsTS0UDWks0S%2FFtpc0k2gaXc2oGIJSnZJt9WYxnBwGmmDs%2Fni2IZdkF2vska1ssidqMNJ30QNYdYxOJXRG9rVpKVIe8t1Qo9%2FBgPNkO8ylDzDFi7lP19txHg%2BQPfDYq1XSqbNGlO81sdeRFcmlkHyU1JAF5W2QC5jo%2BGhca9N5BXW%2BmT0xEvS1uuruovftrJLYfql6vvEWz4na3ZUDO2Lv6JSdV%2FTFAeO93AQ5gL75CHsbRZ97K9YPhCF3xlGXhhC7fHBHrOjL0bnQbKL5THHeANtukQkGtK8LWaVjgUwTJ03F8BYNXB5O2gJR4z2jtjeVDdseHxe9xUwvnheOoon6rBOJGfEMMJ7QqsAGOt0CIvMDRIysw24yEeqiyu1WEVKwDI%2F%2FSgDZXmzOPCWghsLDobbOFSlKU%2BWJd9i8lavMreAIRBMhPrAC3g13%2BL2I8J%2B9cNaRV4lDcuAvrbL5d2%2F%2Bz4IKOsCDPd%2FHCj4WmyWixaHSiSAPgZF2eNgISg9MLzdBRKFDOCOoWwGvq3IAu8ZAoYl42hnPUxjpbdBna5u9h8mFKo5flIYWZLpXO%2BYhSuy4rXUnelTNXXdfo%2BwIfSwoct6BNEUH73Xiu7%2BObguKMux6NMCsS5XWgmDnYFhap4pQdi%2Fm8HIPlBOzzBSgtfapMTYsB0nz75zNL8Uwf4Ud4eLaun2omc34Ou%2F6psVzphrsfk994fjvOiSg9YS6y4t%2FJAipZy5Rt0UigLVhW99En34iXNm80bvbun28CYLnDdjzaIGUc9Yk51jgxz8Fr8A0hP%2FYlNw2qZtKDd8%2BKzgY%2BQwI8fjSH2tMBzsDVA%3D%3D&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA6ELKOLNIUNONPXTW%2F20250424%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20250424T210851Z&X-Amz-Expires=43200&X-Amz-SignedHeaders=host&X-Amz-Signature=3b75ff432cb5ba406245ee082b7b31eb9b5ffe7e173f380ed31b21a34a08fa9e
 # Test presigned sink: https://truevine-media-storage.s3.amazonaws.com/test-transcript.json?AWSAccessKeyId=AKIA6ELKOLNI6NHCTNUY&Signature=M9xk8UyJFwvYbOBiamAwdnXBYzU%3D&content-type=application%2Fjson&Expires=1745567113
-@app.route("/create-transcription", methods=["POST"])
+@app.route("/video-renderer/create-transcription", methods=["POST"])
 def create_transcription():
     """Create transcription file from a video using presigned URLs.
     ---
@@ -167,7 +173,7 @@ def create_transcription():
     t1.start()
     return "Ok"
 # Test sink presigned: https://truevine-media-storage.s3.amazonaws.com/test-subclip.mp4?AWSAccessKeyId=AKIA6ELKOLNI6NHCTNUY&Signature=%2FLGS2b0MmCYwVWlXMXoBg%2Fo5jaQ%3D&content-type=video%2Fmp4&Expires=1745575398
-@app.route("/video-cut", methods=["POST"])
+@app.route("/video-renderer/video-cut", methods=["POST"])
 def create_video_cuts():
     """Create multiple video cuts based on provided parameters.
     ---
@@ -346,7 +352,7 @@ def create_video_cuts():
     # Return immediate confirmation
     return jsonify({"message": "Ok"}), 200
 
-@app.route('/logs')
+@app.route('/video-renderer/logs')
 def get_logs():
     """Get logs from the service.
     ---
