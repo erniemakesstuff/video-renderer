@@ -142,7 +142,7 @@ def generate_presigned_url():
     try:
         url = s3_client.generate_presigned_url(
             ClientMethod='put_object',
-            Params={"Bucket": 'truevine-media-storage', "Key": 'test-subclip.mp4', 'ContentType': 'video/mp4'},
+            Params={"Bucket": 'truevine-media-storage', "Key": 'test-subclip-2.mp4', 'ContentType': 'video/mp4'},
             ExpiresIn=36000
         )
     except ClientError:

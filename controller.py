@@ -370,7 +370,7 @@ def get_logs():
                                 description: The response message
     """
     try:
-        #generate_presigned_url()
+        generate_presigned_url()
         return send_file(log_file, mimetype='text/plain')
     except FileNotFoundError:
         return "Log file not found", 404
