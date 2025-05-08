@@ -20,7 +20,9 @@ class VideoEditCallbackHandler(object):
     
     def __init__(self):
         if not hasattr(self, 'vdeo_editor'):
-            self.video_editor = MusicScoring()
+            self.video_editor = movie_render.MovieRenderer()
+        if not hasattr(self, 'context_generator'):
+            self.context_generator = context_generator.ContextGenerator()
     
     # Common interface.
     def handle_message(self, mediaEvent) -> bool:
@@ -40,8 +42,7 @@ class VideoEditCallbackHandler(object):
 
 
     def __perform_render(self, data) -> bool:
-        inst = movie_render.MovieRenderer()
-        return inst.perform_render(is_short_form=data["isShortForm"],
+        return self.video_editor.perform_render(is_short_form=data["isShortForm"],
                             thumbnail_text=data["thumbnailText"],
                             final_render_sequences=data["finalRenderSequences"],
                             language=data["language"],
@@ -50,5 +51,4 @@ class VideoEditCallbackHandler(object):
                             filepath_prefix=data["filepathPrefix"])
     
     def __create_transcript(self, data) -> bool:
-        inst = context_generator.ContextGenerator()
-        return inst.transcribe_video_to_cloud(data['sourcePresignedS3Url'], data['sinkPresignedS3Url'])
+        return self.context_generator.transcribe_video_to_cloud(data['sourcePresignedS3Url'], data['sinkPresignedS3Url'])
